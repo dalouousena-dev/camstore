@@ -98,6 +98,7 @@ app.post('/auth/register', async (req, res) => {
   user,
   token: user.id
 });
+   }); 
 // LOGIN
 app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
