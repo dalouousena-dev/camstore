@@ -4,162 +4,192 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { validationResult } from 'express-validator';
-import authRoutes from './routes/authRoutes.js';
-import productRoutes from './routes/productRoutes.js';
-import messageRoutes from './routes/messageRoutes.js';
-import paymentRoutes from './routes/paymentRoutes.js';
-import adminRoutes from './routes/adminRoutes.js';
-import { authenticateToken } from './middleware/authMiddleware.js';
-import prisma from './lib/prisma.js';
-import { hashPassword } from './lib/password.js';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+/* ========================
+   MIDDLEWARE
+======================== */
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Compute __dirname for ES modules and serve static files from uploads folder
+/* ========================
+   FILE SYSTEM (UPLOADS)
+======================== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.join(__dirname, 'uploads');
 
-// Debug: log uploadsDir existence
-console.log('=== SERVER STARTING ===');
-console.log('=== UPLOADS CONFIGURATION ===');
-console.log('Server file location:', __filename);
-console.log('Server directory (__dirname):', __dirname);
-console.log('uploadsDir:', uploadsDir);
-console.log('uploadsDir exists:', fs.existsSync(uploadsDir));
-if (fs.existsSync(uploadsDir)) {
-  const files = fs.readdirSync(uploadsDir);
-  console.log(`Files in uploads folder: ${files.length} files`);
-  console.log('First 3 files:', files.slice(0, 3));
-}
-console.log('============================\n');
-console.log('PORT:', process.env.PORT || 5000);
-
-// Simple request logger to observe incoming requests (for debugging)
-app.use((req, res, next) => {
-  if (req.url.includes('uploads') || req.url.includes('/')) {
-    console.log('[REQ]', req.method, req.url);
-  }
-  next();
-});
-
-// Debug middleware: log headers and any express-validator errors early
-app.use((req, res, next) => {
-  console.log('[DEBUG] Incoming request:', req.method, req.url, 'Content-Type:', req.headers['content-type']);
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      console.log('[DEBUG] Pre-route validation errors:', errors.array());
-    }
-  } catch (err) {
-    console.log('[DEBUG] validationResult threw:', err && err.message);
-  }
-  next();
-});
-
-// Serve static files from backend/uploads using an absolute path
 app.use('/uploads', express.static(uploadsDir));
-console.log('Static middleware configured for /uploads at:', uploadsDir);
 
-// Explicit image serving route as fallback
 app.get('/uploads/:filename', (req, res) => {
-  const filename = req.params.filename;
-  const filepath = path.join(uploadsDir, filename);
-  
-  // Sanitize filename to prevent path traversal
-  if (!filepath.startsWith(uploadsDir)) {
+  const filePath = path.join(uploadsDir, req.params.filename);
+
+  if (!filePath.startsWith(uploadsDir)) {
     return res.status(403).json({ message: 'Forbidden' });
   }
-  
-  res.sendFile(filepath, (err) => {
-    if (err) {
-      console.error('Error sending file:', filename, err.message);
-      res.status(404).json({ message: 'File not found: ' + filename });
-    }
+
+  res.sendFile(filePath, (err) => {
+    if (err) return res.status(404).json({ message: 'File not found' });
   });
 });
 
-// Database Connection & Admin Setup
-async function initializeDatabase() {
-  try {
-    console.log('Connecting to SQLite database...');
-    
-    // Test connection
-    const count = await prisma.user.count();
-    console.log('✓ Database connected');
+/* ========================
+   IN-MEMORY DATABASE
+======================== */
+const db = {
+  users: [],
+  products: [],
+  messages: [],
+  payments: []
+};
 
-    // Default admin credentials
-    const adminEmail = process.env.ADMIN_EMAIL || 'camestore@gmail.com';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'password693288582';
+/* ========================
+   SIMPLE AUTH MIDDLEWARE (FAKE JWT STYLE)
+======================== */
+function authenticateToken(req, res, next) {
+  const token = req.headers.authorization;
 
-    // Create admin user if it doesn't exist
-    const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
-    if (!existingAdmin) {
-      const hashedPassword = await hashPassword(adminPassword);
-      await prisma.user.create({
-        data: {
-          email: adminEmail,
-          password: hashedPassword,
-          fullName: 'Admin',
-          phone: '0000000000',
-          location: 'Admin',
-          role: 'admin'
-        }
-      });
-      console.log(`✓ Created admin user: ${adminEmail}`);
-    } else if (existingAdmin.role !== 'admin') {
-      // If existing user but not admin, make them admin
-      await prisma.user.update({
-        where: { email: adminEmail },
-        data: { role: 'admin' }
-      });
-      console.log(`✓ Upgraded user to admin: ${adminEmail}`);
-    } else {
-      console.log(`✓ Admin user already exists: ${adminEmail}`);
-    }
-  } catch (err) {
-    console.error('Database initialization error:', err && err.message);
-    process.exit(1);
+  if (!token) {
+    return res.status(401).json({ message: 'No token provided' });
   }
+
+  const user = db.users.find(u => u.id === token);
+
+  if (!user) {
+    return res.status(401).json({ message: 'Invalid token' });
+  }
+
+  req.user = user;
+  next();
 }
 
-// Initialize database on startup
-initializeDatabase();
+/* ========================
+   AUTH ROUTES
+======================== */
 
-// Routes (Vite proxy strips /api prefix, so routes don't need it)
-app.use('/auth', authRoutes);
-// Products and messaging require authentication
-app.use('/products', authenticateToken, productRoutes);
-app.use('/messages', authenticateToken, messageRoutes);
-app.use('/payments', authenticateToken, paymentRoutes);
-// Admin routes (require authentication + admin verification)
-app.use('/admin', adminRoutes);
+// REGISTER
+app.post('/auth/register', async (req, res) => {
+  const { email, password, fullName } = req.body;
 
-// Public endpoint for testing uploads
-app.get('/test-uploads', (req, res) => {
-  res.json({ message: 'Uploads middleware is working', uploadsDir });
+  const existing = db.users.find(u => u.email === email);
+  if (existing) {
+    return res.status(400).json({ message: 'User already exists' });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const user = {
+    id: Date.now().toString(),
+    email,
+    password: hashedPassword,
+    fullName,
+    role: 'user'
+  };
+
+  db.users.push(user);
+
+  res.json({ user });
 });
 
-// Health check route
+// LOGIN
+app.post('/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  const user = db.users.find(u => u.email === email);
+  if (!user) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  const valid = await bcrypt.compare(password, user.password);
+
+  if (!valid) {
+    return res.status(401).json({ message: 'Invalid credentials' });
+  }
+
+  // simple token = user id (MVP ONLY)
+  res.json({
+    token: user.id,
+    user
+  });
+});
+
+/* ========================
+   PRODUCTS
+======================== */
+
+app.get('/products', authenticateToken, (req, res) => {
+  res.json(db.products);
+});
+
+app.post('/products', authenticateToken, (req, res) => {
+  const product = {
+    id: Date.now().toString(),
+    ...req.body
+  };
+
+  db.products.push(product);
+
+  res.json(product);
+});
+
+/* ========================
+   MESSAGES
+======================== */
+
+app.get('/messages', authenticateToken, (req, res) => {
+  res.json(db.messages);
+});
+
+app.post('/messages', authenticateToken, (req, res) => {
+  const message = {
+    id: Date.now().toString(),
+    ...req.body
+  };
+
+  db.messages.push(message);
+
+  res.json(message);
+});
+
+/* ========================
+   PAYMENTS
+======================== */
+
+app.post('/payments', authenticateToken, (req, res) => {
+  const payment = {
+    id: Date.now().toString(),
+    ...req.body
+  };
+
+  db.payments.push(payment);
+
+  res.json(payment);
+});
+
+/* ========================
+   ADMIN
+======================== */
+
+app.get('/admin/users', authenticateToken, (req, res) => {
+  res.json(db.users);
+});
+
+/* ========================
+   HEALTH CHECK
+======================== */
 app.get('/health', (req, res) => {
-  res.json({ status: 'Backend is running' });
+  res.json({ status: 'OK' });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
-});
-
+/* ========================
+   START SERVER
+======================== */
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
