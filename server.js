@@ -60,42 +60,62 @@ function authenticateToken(req, res, next) {
 
 // REGISTER
 app.post('/auth/register', async (req, res) => {
-  const { email, password, fullName } = req.body;
+  try {
+    const { email, password, fullName } = req.body;
 
-  if (db.users.find(u => u.email === email)) {
-    return res.status(400).json({ message: 'User already exists' });
+    if (!email || !password || !fullName) {
+      return res.status(400).json({ message: 'Missing fields' });
+    }
+
+    if (db.users.find(u => u.email === email)) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+
+    const user = {
+      id: Date.now().toString(),
+      email,
+      password: await bcrypt.hash(password, 10),
+      fullName,
+      role: 'user'
+    };
+
+    db.users.push(user);
+
+    return res.json({
+      user,
+      token: user.id
+    });
+
+  } catch (err) {
+    console.error('REGISTER CRASH:', err);
+    return res.status(500).json({ message: 'Server error' });
   }
-
-  const user = {
-    id: Date.now().toString(),
-    email,
-    password: await bcrypt.hash(password, 10),
-    fullName,
-    role: 'user'
-  };
-
-  db.users.push(user);
-
-  return res.json({
-    user,
-    token: user.id
-  });
 });
 
 // LOGIN
 app.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const user = db.users.find(u => u.email === email);
-  if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Missing fields' });
+    }
 
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
+    const user = db.users.find(u => u.email === email);
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-  return res.json({
-    user,
-    token: user.id
-  });
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
+
+    return res.json({
+      user,
+      token: user.id
+    });
+
+  } catch (err) {
+    console.error('LOGIN CRASH:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // VERIFY (NEW)
