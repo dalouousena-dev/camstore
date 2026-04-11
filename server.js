@@ -6,7 +6,13 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 
 dotenv.config();
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
 
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+});
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -61,7 +67,8 @@ function authenticateToken(req, res, next) {
 // REGISTER
 app.post('/auth/register', async (req, res) => {
   try {
-    console.log('REGISTER BODY:', req.body);
+    console.log('REGISTER HIT');
+    console.log('BODY:', req.body);
 
     const { email, password, fullName } = req.body;
 
@@ -69,12 +76,10 @@ app.post('/auth/register', async (req, res) => {
       return res.status(400).json({ message: 'Missing fields' });
     }
 
-    const hashed = await bcrypt.hash(password, 10);
-
     const user = {
       id: Date.now().toString(),
       email,
-      password: hashed,
+      password: await bcrypt.hash(password, 10),
       fullName,
       role: 'user'
     };
@@ -91,11 +96,11 @@ app.post('/auth/register', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 // LOGIN
 app.post('/auth/login', async (req, res) => {
   try {
-    console.log('LOGIN BODY:', req.body);
+    console.log('LOGIN HIT');
+    console.log('BODY:', req.body);
 
     const { email, password } = req.body;
 
@@ -119,7 +124,6 @@ app.post('/auth/login', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 // VERIFY (NEW)
 app.get('/auth/verify', authenticateToken, (req, res) => {
   res.json({ user: req.user });
