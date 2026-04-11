@@ -49,12 +49,19 @@ const db = {
    AUTH MIDDLEWARE
 ======================== */
 function authenticateToken(req, res, next) {
-  const token = req.headers.authorization;
+  const authHeader = req.headers.authorization;
 
-  if (!token) return res.status(401).json({ message: 'No token' });
+  if (!authHeader) {
+    return res.status(401).json({ message: 'No token' });
+  }
+
+  const token = authHeader.split(' ')[1]; // ✅ FIX HERE
 
   const user = db.users.find(u => u.id === token);
-  if (!user) return res.status(401).json({ message: 'Invalid token' });
+
+  if (!user) {
+    return res.status(401).json({ message: 'Invalid token' });
+  }
 
   req.user = user;
   next();
