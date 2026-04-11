@@ -61,40 +61,42 @@ function authenticateToken(req, res, next) {
 // REGISTER
 app.post('/auth/register', async (req, res) => {
   try {
+    console.log('REGISTER BODY:', req.body);
+
     const { email, password, fullName } = req.body;
 
     if (!email || !password || !fullName) {
       return res.status(400).json({ message: 'Missing fields' });
     }
 
-    if (db.users.find(u => u.email === email)) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
+    const hashed = await bcrypt.hash(password, 10);
 
     const user = {
       id: Date.now().toString(),
       email,
-      password: await bcrypt.hash(password, 10),
+      password: hashed,
       fullName,
       role: 'user'
     };
 
     db.users.push(user);
 
-    return res.json({
+    res.json({
       user,
       token: user.id
     });
 
   } catch (err) {
     console.error('REGISTER CRASH:', err);
-    return res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
 // LOGIN
 app.post('/auth/login', async (req, res) => {
   try {
+    console.log('LOGIN BODY:', req.body);
+
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -107,14 +109,14 @@ app.post('/auth/login', async (req, res) => {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
 
-    return res.json({
+    res.json({
       user,
       token: user.id
     });
 
   } catch (err) {
     console.error('LOGIN CRASH:', err);
-    return res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
