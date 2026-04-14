@@ -4,6 +4,19 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
+import multer from 'multer';
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir); // uses your existing uploads folder
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = Date.now() + '-' + file.originalname;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({ storage });
 
 dotenv.config();
 process.on('uncaughtException', (err) => {
@@ -72,12 +85,9 @@ function authenticateToken(req, res, next) {
 ======================== */
 
 // REGISTER
-app.post('/auth/register', async (req, res) => {
+app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   try {
-    console.log('REGISTER HIT');
-    console.log('BODY:', req.body);
-
-    const { email, password, fullName } = req.body;
+    const { email, password, fullName, phone, location } = req.body;
 
     if (!email || !password || !fullName) {
       return res.status(400).json({ message: 'Missing fields' });
@@ -88,7 +98,9 @@ app.post('/auth/register', async (req, res) => {
       email,
       password: await bcrypt.hash(password, 10),
       fullName,
-      role: 'user'
+      phone,
+      location,
+      profileImage: req.file ? `/uploads/${req.file.filename}` : null
     };
 
     db.users.push(user);
@@ -99,10 +111,12 @@ app.post('/auth/register', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('REGISTER CRASH:', err);
+    console.error('REGISTER ERROR:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+
 // LOGIN
 app.post('/auth/login', async (req, res) => {
   try {
