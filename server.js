@@ -229,8 +229,13 @@ app.put('/auth/profile', authenticateToken, upload.single('profileImage'), (req,
 /* ========================
    PRODUCTS
 ======================== */
-app.get('/products', authenticateToken, (req, res) => {
-  res.json(db.products);
+app.get('/products/favorites', authenticateToken, (req, res) => {
+  const favs = db.favorites
+    .filter(f => f.userId === req.user.id)
+    .map(f => db.products.find(p => p.id === f.productId))
+    .filter(Boolean);
+
+  res.json(favs);
 });
 
 app.get('/products/my-listings', authenticateToken, (req, res) => {
@@ -238,15 +243,25 @@ app.get('/products/my-listings', authenticateToken, (req, res) => {
   res.json({ products: myProducts });
 });
 
-app.post('/products', authenticateToken, (req, res) => {
-  const product = {
+app.post('/products/favorites', authenticateToken, (req, res) => {
+  const { productId } = req.body;
+
+  if (!productId) {
+    return res.status(400).json({ message: 'Missing productId' });
+  }
+
+  const favorite = {
     id: Date.now().toString(),
     userId: req.user.id,
-    ...req.body
+    productId
   };
 
-  db.products.push(product);
-  res.json(product);
+  db.favorites.push(favorite);
+
+  res.json({
+    success: true,
+    favorite
+  });
 });
 
 /* ========================
@@ -264,18 +279,33 @@ app.delete('/products/:id', authenticateToken, (req, res) => {
    MESSAGES
 ======================== */
 app.get('/messages', authenticateToken, (req, res) => {
-  res.json(db.messages);
-});
+  const userMessages = db.messages.filter(
+    m => m.senderId === req.user.id || m.receiverId === req.user.id
+  );
 
+  res.json(userMessages);
+});
 app.post('/messages', authenticateToken, (req, res) => {
+  const { receiverId, text } = req.body;
+
+  if (!receiverId || !text) {
+    return res.status(400).json({ message: 'Missing data' });
+  }
+
   const message = {
     id: Date.now().toString(),
     senderId: req.user.id,
-    ...req.body
+    receiverId,
+    text,
+    createdAt: new Date()
   };
 
   db.messages.push(message);
-  res.json(message);
+
+  res.json({
+    success: true,
+    message
+  });
 });
 
 /* ========================
