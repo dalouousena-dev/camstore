@@ -5,10 +5,39 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
+import fs from 'fs';
 
+dotenv.config();
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+});
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+/* ========================
+   FILE SYSTEM (FIXED ORDER)
+======================== */
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.join(__dirname, 'uploads');
+
+// ✅ Ensure uploads folder exists
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
+
+/* ========================
+   MULTER (NOW SAFE)
+======================== */
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadsDir); // uses your existing uploads folder
+    cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
     const uniqueName = Date.now() + '-' + file.originalname;
@@ -18,32 +47,12 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-dotenv.config();
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err);
-});
-
-process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION:', err);
-});
-const app = express();
-const PORT = process.env.PORT || 5000;
-
 /* ========================
    MIDDLEWARE
 ======================== */
-app.use(cors({
-  origin: '*'
-}));
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-/* ========================
-   FILE SYSTEM
-======================== */
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const uploadsDir = path.join(__dirname, 'uploads');
 
 app.use('/uploads', express.static(uploadsDir));
 
@@ -68,7 +77,7 @@ function authenticateToken(req, res, next) {
     return res.status(401).json({ message: 'No token' });
   }
 
-  const token = authHeader.split(' ')[1]; // ✅ FIX HERE
+  const token = authHeader.split(' ')[1];
 
   const user = db.users.find(u => u.id === token);
 
@@ -84,9 +93,12 @@ function authenticateToken(req, res, next) {
    AUTH ROUTES
 ======================== */
 
-// REGISTER
+// REGISTER (FIXED)
 app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   try {
+    console.log("BODY:", req.body);
+    console.log("FILE:", req.file);
+
     const { email, password, fullName, phone, location } = req.body;
 
     if (!email || !password || !fullName) {
@@ -116,7 +128,6 @@ app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   }
 });
 
-
 // LOGIN
 app.post('/auth/login', async (req, res) => {
   try {
@@ -145,7 +156,8 @@ app.post('/auth/login', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-// VERIFY (NEW)
+
+// VERIFY
 app.get('/auth/verify', authenticateToken, (req, res) => {
   res.json({ user: req.user });
 });
@@ -153,25 +165,20 @@ app.get('/auth/verify', authenticateToken, (req, res) => {
 /* ========================
    PRODUCTS
 ======================== */
-
-// ALL PRODUCTS
 app.get('/products', authenticateToken, (req, res) => {
   res.json(db.products);
 });
 
-// MY LISTINGS (NEW)
 app.get('/products/my-listings', authenticateToken, (req, res) => {
   const myProducts = db.products.filter(p => p.userId === req.user.id);
   res.json(myProducts);
 });
 
-// FAVORITES (NEW)
 app.get('/products/favorites', authenticateToken, (req, res) => {
   const favs = db.favorites.filter(f => f.userId === req.user.id);
   res.json(favs);
 });
 
-// CREATE PRODUCT
 app.post('/products', authenticateToken, (req, res) => {
   const product = {
     id: Date.now().toString(),
@@ -186,21 +193,10 @@ app.post('/products', authenticateToken, (req, res) => {
 /* ========================
    MESSAGES
 ======================== */
-
-// ALL MESSAGES
 app.get('/messages', authenticateToken, (req, res) => {
   res.json(db.messages);
 });
 
-// CONVERSATIONS (NEW)
-app.get('/messages/conversations', authenticateToken, (req, res) => {
-  const conversations = db.messages.filter(
-    m => m.senderId === req.user.id || m.receiverId === req.user.id
-  );
-  res.json(conversations);
-});
-
-// SEND MESSAGE
 app.post('/messages', authenticateToken, (req, res) => {
   const message = {
     id: Date.now().toString(),
@@ -210,27 +206,6 @@ app.post('/messages', authenticateToken, (req, res) => {
 
   db.messages.push(message);
   res.json(message);
-});
-
-/* ========================
-   PAYMENTS
-======================== */
-app.post('/payments', authenticateToken, (req, res) => {
-  const payment = {
-    id: Date.now().toString(),
-    userId: req.user.id,
-    ...req.body
-  };
-
-  db.payments.push(payment);
-  res.json(payment);
-});
-
-/* ========================
-   ADMIN
-======================== */
-app.get('/admin/users', authenticateToken, (req, res) => {
-  res.json(db.users);
 });
 
 /* ========================
