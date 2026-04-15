@@ -18,9 +18,8 @@ const PORT = process.env.PORT || 5000;
 /* ======================== SUPABASE ======================== */
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
+  process.env.SUPABASE_ANON_KEY
 );
-
 /* ======================== PATH CONFIG ======================== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
