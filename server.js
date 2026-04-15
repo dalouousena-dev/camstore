@@ -73,32 +73,58 @@ async function authenticateToken(req, res, next) {
 // ✅ REGISTER (SUPABASE)
 app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   try {
-    const { email, password, fullName } = req.body;
+    console.log("BODY:", req.body);
+    console.log("FILE:", req.file);
 
+    const { email, password, fullName, phone, location } = req.body;
+
+    // ❌ Validate required fields
+    if (!email || !password || !fullName) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    // ✅ Hash password safely
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // ✅ Build user object
     const newUser = {
       id: Date.now().toString(),
       email,
       password: hashedPassword,
       fullName,
-      profileImage: req.file ? `/uploads/${req.file.filename}` : null
+      phone: phone || null,
+      location: location || null,
+      role: 'user',
+      profileImage: req.file ? `/uploads/${req.file.filename}` : null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
+    console.log("NEW USER:", newUser);
+
+    // ✅ Insert into Supabase
     const { data, error } = await supabase
       .from('User')
       .insert([newUser])
       .select();
 
     if (error) {
+      console.error("SUPABASE ERROR:", error);
       return res.status(500).json({ error: error.message });
     }
 
-    res.json({ user: data[0], token: data[0].id });
+    if (!data || data.length === 0) {
+      return res.status(500).json({ error: "User not created" });
+    }
+
+    res.json({
+      user: data[0],
+      token: data[0].id
+    });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Register failed" });
+    console.error("REGISTER CRASH:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
