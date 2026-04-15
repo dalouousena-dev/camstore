@@ -13,18 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 /* ========================
-   SAFETY (PREVENT CRASHES)
-======================== */
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err);
-});
-
-process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION:', err);
-});
-
-/* ========================
-   FILE PATHS
+   PATH CONFIG (IMPORTANT)
 ======================== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,16 +23,29 @@ const uploadsDir = path.join(__dirname, 'uploads');
    CREATE UPLOAD FOLDER
 ======================== */
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
+  fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
 /* ========================
-   MULTER CONFIG (SAFE)
+   STATIC FILES (🔥 FIX)
+======================== */
+app.use('/uploads', express.static(uploadsDir));
+
+/* ========================
+   MIDDLEWARE
+======================== */
+app.use(cors({
+  origin: '*',
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+/* ========================
+   MULTER CONFIG
 ======================== */
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
+  destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
     const safeName = file.originalname.replace(/\s+/g, '-');
     cb(null, Date.now() + '-' + safeName);
@@ -52,26 +54,11 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit (prevents crashes)
-  }
+  limits: { fileSize: 5 * 1024 * 1024 }
 });
 
 /* ========================
-   MIDDLEWARE
-======================== */
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE']
-}));
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.use('/uploads', express.static(uploadsDir));
-
-/* ========================
-   MEMORY DB
+   MEMORY DATABASE
 ======================== */
 const db = {
   users: [],
@@ -84,110 +71,69 @@ const db = {
    AUTH MIDDLEWARE
 ======================== */
 function authenticateToken(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization;
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ message: 'No token' });
 
-    if (!authHeader) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
+  const token = authHeader.split(' ')[1];
+  const user = db.users.find(u => u.id === token);
 
-    const token = authHeader.split(' ')[1];
+  if (!user) return res.status(401).json({ message: 'Invalid token' });
 
-    const user = db.users.find(u => u.id === token);
-
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid token' });
-    }
-
-    req.user = user;
-    next();
-  } catch (err) {
-    console.error("AUTH ERROR:", err);
-    return res.status(500).json({ message: 'Auth error' });
-  }
+  req.user = user;
+  next();
 }
 
 /* ========================
-   HEALTH CHECK
+   TEST IMAGE ROUTE (DEBUG)
 ======================== */
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK' });
+app.get('/test-image', (req, res) => {
+  const files = fs.readdirSync(uploadsDir);
+  if (!files.length) return res.send('No images uploaded');
+
+  res.sendFile(path.join(uploadsDir, files[0]));
 });
 
 /* ========================
    REGISTER
 ======================== */
 app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
-  try {
-    console.log("REGISTER BODY:", req.body);
-    console.log("FILE:", req.file);
+  const { email, password, fullName, phone, location } = req.body;
 
-    const { email, password, fullName, phone, location } = req.body;
-
-    if (!email || !password || !fullName) {
-      return res.status(400).json({ message: 'Missing fields' });
-    }
-
-    const exists = db.users.find(u => u.email === email);
-    if (exists) {
-      return res.status(409).json({ message: 'User already exists' });
-    }
-
-    const user = {
-      id: Date.now().toString(),
-      email,
-      password: await bcrypt.hash(password, 10),
-      fullName,
-      phone,
-      location,
-      profileImage: req.file ? `/uploads/${req.file.filename}` : null
-    };
-
-    db.users.push(user);
-
-    return res.status(200).json({
-      user,
-      token: user.id
-    });
-
-  } catch (err) {
-    console.error('REGISTER ERROR:', err);
-    return res.status(500).json({ message: 'Registration failed' });
+  if (!email || !password || !fullName) {
+    return res.status(400).json({ message: 'Missing fields' });
   }
+
+  const exists = db.users.find(u => u.email === email);
+  if (exists) return res.status(409).json({ message: 'User exists' });
+
+  const user = {
+    id: Date.now().toString(),
+    email,
+    password: await bcrypt.hash(password, 10),
+    fullName,
+    phone,
+    location,
+    profileImage: req.file ? `/uploads/${req.file.filename}` : null
+  };
+
+  db.users.push(user);
+
+  res.json({ user, token: user.id });
 });
 
 /* ========================
    LOGIN
 ======================== */
 app.post('/auth/login', async (req, res) => {
-  try {
-    console.log('LOGIN BODY:', req.body);
+  const { email, password } = req.body;
 
-    const { email, password } = req.body;
+  const user = db.users.find(u => u.email === email);
+  if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Missing fields' });
-    }
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
 
-    const user = db.users.find(u => u.email === email);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    return res.json({
-      user,
-      token: user.id
-    });
-
-  } catch (err) {
-    console.error('LOGIN ERROR:', err);
-    return res.status(500).json({ message: 'Login failed' });
-  }
+  res.json({ user, token: user.id });
 });
 
 /* ========================
@@ -198,36 +144,66 @@ app.get('/auth/verify', authenticateToken, (req, res) => {
 });
 
 /* ========================
-   PROFILE UPDATE (MISSING BEFORE)
+   UPDATE PROFILE
 ======================== */
 app.put('/auth/profile', authenticateToken, upload.single('profileImage'), (req, res) => {
-  try {
-    const user = req.user;
+  const user = req.user;
 
-    const { fullName, email, phone, location } = req.body;
+  const { fullName, email, phone, location } = req.body;
 
-    if (fullName) user.fullName = fullName;
-    if (email) user.email = email;
-    if (phone) user.phone = phone;
-    if (location) user.location = location;
+  if (fullName) user.fullName = fullName;
+  if (email) user.email = email;
+  if (phone) user.phone = phone;
+  if (location) user.location = location;
 
-    if (req.file) {
-      user.profileImage = `/uploads/${req.file.filename}`;
-    }
-
-    return res.json({
-      success: true,
-      user
-    });
-
-  } catch (err) {
-    console.error("PROFILE UPDATE ERROR:", err);
-    return res.status(500).json({ message: 'Profile update failed' });
+  if (req.file) {
+    user.profileImage = `/uploads/${req.file.filename}`;
   }
+
+  res.json({ success: true, user });
 });
 
 /* ========================
-   PRODUCTS
+   PRODUCTS (🔥 FIXED)
+======================== */
+
+/* GET ALL PRODUCTS */
+app.get('/products', (req, res) => {
+  res.json(db.products);
+});
+
+/* GET MY PRODUCTS */
+app.get('/products/my-listings', authenticateToken, (req, res) => {
+  const myProducts = db.products.filter(p => p.userId === req.user.id);
+  res.json({ products: myProducts });
+});
+
+/* CREATE PRODUCT */
+app.post('/products', authenticateToken, upload.array('images', 5), (req, res) => {
+  const { title, description, price } = req.body;
+
+  const product = {
+    id: Date.now().toString(),
+    userId: req.user.id,
+    title,
+    description,
+    price,
+    images: req.files ? req.files.map(f => `/uploads/${f.filename}`) : []
+  };
+
+  db.products.push(product);
+
+  res.json({ success: true, product });
+});
+
+/* DELETE PRODUCT */
+app.delete('/products/:id', authenticateToken, (req, res) => {
+  db.products = db.products.filter(p => p.id !== req.params.id);
+  res.json({ success: true });
+});
+
+/* ========================
+   FAVORITES
 ======================== */
 app.get('/products/favorites', authenticateToken, (req, res) => {
   const favs = db.favorites
@@ -238,17 +214,8 @@ app.get('/products/favorites', authenticateToken, (req, res) => {
   res.json(favs);
 });
 
-app.get('/products/my-listings', authenticateToken, (req, res) => {
-  const myProducts = db.products.filter(p => p.userId === req.user.id);
-  res.json({ products: myProducts });
-});
-
 app.post('/products/favorites', authenticateToken, (req, res) => {
   const { productId } = req.body;
-
-  if (!productId) {
-    return res.status(400).json({ message: 'Missing productId' });
-  }
 
   const favorite = {
     id: Date.now().toString(),
@@ -258,20 +225,6 @@ app.post('/products/favorites', authenticateToken, (req, res) => {
 
   db.favorites.push(favorite);
 
-  res.json({
-    success: true,
-    favorite
-  });
-});
-
-/* ========================
-   DELETE PRODUCT
-======================== */
-app.delete('/products/:id', authenticateToken, (req, res) => {
-  const id = req.params.id;
-
-  db.products = db.products.filter(p => p.id !== id);
-
   res.json({ success: true });
 });
 
@@ -279,18 +232,14 @@ app.delete('/products/:id', authenticateToken, (req, res) => {
    MESSAGES
 ======================== */
 app.get('/messages', authenticateToken, (req, res) => {
-  const userMessages = db.messages.filter(
+  const messages = db.messages.filter(
     m => m.senderId === req.user.id || m.receiverId === req.user.id
   );
-
-  res.json(userMessages);
+  res.json(messages);
 });
+
 app.post('/messages', authenticateToken, (req, res) => {
   const { receiverId, text } = req.body;
-
-  if (!receiverId || !text) {
-    return res.status(400).json({ message: 'Missing data' });
-  }
 
   const message = {
     id: Date.now().toString(),
@@ -302,14 +251,11 @@ app.post('/messages', authenticateToken, (req, res) => {
 
   db.messages.push(message);
 
-  res.json({
-    success: true,
-    message
-  });
+  res.json({ success: true, message });
 });
 
 /* ========================
-   START SERVER (SAFE)
+   START SERVER
 ======================== */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
