@@ -83,7 +83,7 @@ app.post('/products', upload.single('image'), async (req, res) => {
       title,
       description,
       price: parseFloat(price),
-      image: req.file ? `/uploads/${req.file.filename}` : null,
+     images: req.file ? `/uploads/${req.file.filename}` : null,
       createdAt: new Date().toISOString()
     };
 
