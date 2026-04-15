@@ -6,11 +6,21 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import fs from 'fs';
+import fetch from 'node-fetch';
+
+// ✅ NEW
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+/* ======================== SUPABASE ======================== */
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
 /* ======================== PATH CONFIG ======================== */
 const __filename = fileURLToPath(import.meta.url);
@@ -39,154 +49,90 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-/* ======================== DATABASE ======================== */
-const db = {
-  users: [],
-  products: [],
-  messages: [],
-  favorites: [],
-  payments: [] // ✅ NEW
-};
-
 /* ======================== AUTH ======================== */
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ message: 'No token' });
 
   const token = authHeader.split(' ')[1];
-  const user = db.users.find(u => u.id === token);
 
-  if (!user) return res.status(401).json({ message: 'Invalid token' });
+  const { data: user, error } = await supabase
+    .from('User')
+    .select('*')
+    .eq('id', token)
+    .single();
+
+  if (error || !user) {
+    return res.status(401).json({ message: 'Invalid token' });
+  }
 
   req.user = user;
   next();
 }
 
 /* ======================== AUTH ROUTES ======================== */
+
+// ✅ REGISTER (SUPABASE)
 app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
-  const { email, password, fullName } = req.body;
-
-  const user = {
-    id: Date.now().toString(),
-    email,
-    password: await bcrypt.hash(password, 10),
-    fullName,
-    profileImage: req.file ? `/uploads/${req.file.filename}` : null
-  };
-
-  db.users.push(user);
-  res.json({ user, token: user.id });
-});
-
-app.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = db.users.find(u => u.email === email);
-  if (!user) return res.status(404).json({ message: 'User not found' });
-
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
-
-  res.json({ user, token: user.id });
-});
-
-/* ======================== PRODUCTS ======================== */
-app.get('/products', (req, res) => {
-  res.json(db.products);
-});
-
-app.post('/products', authenticateToken, upload.array('images', 5), (req, res) => {
-  const { title, description, price } = req.body;
-
-  const product = {
-    id: Date.now().toString(),
-    userId: req.user.id,
-    title,
-    description,
-    price,
-    images: req.files?.map(f => `/uploads/${f.filename}`) || [],
-    isPaid: false // 🔥 IMPORTANT
-  };
-
-  db.products.push(product);
-
-  res.json({ success: true, product });
-});
-
-/* ======================== PAYMENT ROUTE ======================== */
-app.post('/pay', authenticateToken, async (req, res) => {
   try {
-    const { amount, phone, operator, productId } = req.body;
+    const { email, password, fullName } = req.body;
 
-    const response = await fetch("https://api.ashtechpay.top/v1/collect", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.ASHTECH_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        amount,
-        currency: "XAF",
-        phone,
-        operator,
-        reference: "CAMSTORE_" + Date.now()
-      })
-    });
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    const data = await response.json();
-
-    // Save payment
-    const payment = {
+    const newUser = {
       id: Date.now().toString(),
-      userId: req.user.id,
-      productId,
-      amount,
-      phone,
-      operator,
-      status: data.status || "pending",
-      createdAt: new Date()
+      email,
+      password: hashedPassword,
+      fullName,
+      profileImage: req.file ? `/uploads/${req.file.filename}` : null
     };
 
-    db.payments.push(payment);
+    const { data, error } = await supabase
+      .from('User')
+      .insert([newUser])
+      .select();
 
-    res.json(data);
-
-  } catch (error) {
-    console.error("PAY ERROR:", error);
-    res.status(500).json({ error: "Payment failed" });
-  }
-});
-
-/* ======================== VERIFY PAYMENT ======================== */
-app.post('/verify-payment', async (req, res) => {
-  try {
-    const { reference } = req.body;
-
-    const response = await fetch(`https://api.ashtechpay.top/v1/status/${reference}`, {
-      headers: {
-        "Authorization": `Bearer ${process.env.ASHTECH_API_KEY}`
-      }
-    });
-
-    const data = await response.json();
-
-    // Update product if success
-    if (data.status === "success") {
-      const payment = db.payments.find(p => p.reference === reference);
-
-      if (payment) {
-        const product = db.products.find(p => p.id === payment.productId);
-        if (product) product.isPaid = true;
-      }
+    if (error) {
+      return res.status(500).json({ error: error.message });
     }
 
-    res.json(data);
+    res.json({ user: data[0], token: data[0].id });
 
-  } catch (error) {
-    console.error("VERIFY ERROR:", error);
-    res.status(500).json({ error: "Verification failed" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Register failed" });
   }
 });
+
+// ✅ LOGIN (SUPABASE)
+app.post('/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const { data: user, error } = await supabase
+      .from('User')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    res.json({ user, token: user.id });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+/* ======================== KEEP REST OF YOUR CODE SAME ======================== */
 
 /* ======================== START ======================== */
 app.listen(PORT, () => {
