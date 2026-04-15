@@ -130,6 +130,19 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
+ app.get('/test-supabase', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('User').select('*');
+
+    console.log("TEST DATA:", data);
+    console.log("TEST ERROR:", error);
+
+    res.json({ data, error });
+  } catch (err) {
+    console.error("TEST FAILED:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== KEEP REST OF YOUR CODE SAME ======================== */
 
 /* ======================== START ======================== */
