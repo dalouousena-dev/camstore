@@ -112,6 +112,56 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
   }
 });
 
+ app.get('/products', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('Product')
+      .select('*')
+      .eq('published', true)
+      .order('createdAt', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ products: data });
+
+  } catch (err) {
+    console.error("GET PRODUCTS ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/products/publish/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data, error } = await supabase
+      .from('Product')
+      .update({
+        published: true,
+        updatedAt: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error("PUBLISH ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    res.json({ product: data[0] });
+
+  } catch (err) {
+    console.error("PUBLISH CRASH:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* ======================== AUTH ROUTES ======================== */
 app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   try {
