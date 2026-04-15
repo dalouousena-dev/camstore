@@ -87,18 +87,18 @@ app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // ✅ Build user object
-    const newUser = {
-      id: Date.now().toString(),
-      email,
-      password: hashedPassword,
-      fullName,
-      phone: phone || null,
-      location: location || null,
-      role: 'user',
-      profileImage: req.file ? `/uploads/${req.file.filename}` : null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+  const newUser = {
+  id: Date.now().toString(),
+  email,
+  password: hashedPassword,
+  fullName,
+  phone: phone || null,
+  location: location || null,
+  role: 'user',
+  profileImage: req.file ? `/uploads/${req.file.filename}` : null,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+};
 
     console.log("NEW USER:", newUser);
 
