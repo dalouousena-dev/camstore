@@ -136,6 +136,8 @@ app.put('/products/publish/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 
+    console.log("Publishing product ID:", id);
+
     const { data, error } = await supabase
       .from('Product')
       .update({
@@ -146,12 +148,12 @@ app.put('/products/publish/:id', authenticateToken, async (req, res) => {
       .select();
 
     if (error) {
-      console.error("PUBLISH ERROR:", error);
+      console.error("SUPABASE ERROR:", error);
       return res.status(500).json({ error: error.message });
     }
 
     if (!data || data.length === 0) {
-      return res.status(404).json({ error: "Product not found" });
+      return res.status(400).json({ error: "Product not found or not updated" }); // ✅ THIS WAS YOUR 400
     }
 
     res.json({ product: data[0] });
