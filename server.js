@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import fs from 'fs';
-import fetch from 'node-fetch';
 
 // ✅ NEW
 import { createClient } from '@supabase/supabase-js';
