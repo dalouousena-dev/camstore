@@ -67,7 +67,43 @@ async function authenticateToken(req, res, next) {
   req.user = user;
   next();
 }
+app.post('/products', upload.single('image'), async (req, res) => {
+  try {
+    console.log("BODY:", req.body);
+    console.log("FILE:", req.file);
 
+    const { title, description, price } = req.body;
+
+    if (!title || !description || !price) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
+
+    const newProduct = {
+      id: Date.now().toString(),
+      title,
+      description,
+      price: parseFloat(price),
+      image: req.file ? `/uploads/${req.file.filename}` : null,
+      createdAt: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('Product')
+      .insert([newProduct])
+      .select();
+
+    if (error) {
+      console.error("SUPABASE ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ product: data[0] });
+
+  } catch (err) {
+    console.error("PRODUCT ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== AUTH ROUTES ======================== */
 
 // ✅ REGISTER (SUPABASE)
