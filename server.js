@@ -6,8 +6,6 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import fs from 'fs';
-
-// ✅ NEW
 import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
@@ -20,6 +18,7 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
+
 /* ======================== PATH CONFIG ======================== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,7 +66,9 @@ async function authenticateToken(req, res, next) {
   req.user = user;
   next();
 }
-app.post('/products', upload.single('image'), async (req, res) => {
+
+/* ======================== PRODUCTS ======================== */
+app.post('/products', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     console.log("BODY:", req.body);
     console.log("FILE:", req.file);
@@ -82,10 +83,16 @@ app.post('/products', upload.single('image'), async (req, res) => {
       id: Date.now().toString(),
       title,
       description,
-      price: parseFloat(price),
-     images: req.file ? `/uploads/${req.file.filename}` : null,
-      createdAt: new Date().toISOString()
+      price: parseInt(price),
+      currency: 'XAF',
+      images: req.file ? `/uploads/${req.file.filename}` : null,
+      ownerId: req.user.id, // ✅ FIXED (NO MORE NULL)
+      published: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
+
+    console.log("NEW PRODUCT:", newProduct);
 
     const { data, error } = await supabase
       .from('Product')
@@ -93,52 +100,42 @@ app.post('/products', upload.single('image'), async (req, res) => {
       .select();
 
     if (error) {
-      console.error("SUPABASE ERROR:", error);
+      console.error("SUPABASE ERROR FULL:", error);
       return res.status(500).json({ error: error.message });
     }
 
     res.json({ product: data[0] });
 
   } catch (err) {
-    console.error("PRODUCT ERROR:", err);
+    console.error("PRODUCT CRASH:", err);
     res.status(500).json({ error: err.message });
   }
 });
-/* ======================== AUTH ROUTES ======================== */
 
-// ✅ REGISTER (SUPABASE)
+/* ======================== AUTH ROUTES ======================== */
 app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   try {
-    console.log("BODY:", req.body);
-    console.log("FILE:", req.file);
-
     const { email, password, fullName, phone, location } = req.body;
 
-    // ❌ Validate required fields
     if (!email || !password || !fullName) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // ✅ Hash password safely
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ✅ Build user object
-  const newUser = {
-  id: Date.now().toString(),
-  email,
-  password: hashedPassword,
-  fullName,
-  phone: phone || null,
-  location: location || null,
-  role: 'user',
-  profileImage: req.file ? `/uploads/${req.file.filename}` : null,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
-};
+    const newUser = {
+      id: Date.now().toString(),
+      email,
+      password: hashedPassword,
+      fullName,
+      phone: phone || null,
+      location: location || null,
+      role: 'user',
+      profileImage: req.file ? `/uploads/${req.file.filename}` : null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
-    console.log("NEW USER:", newUser);
-
-    // ✅ Insert into Supabase
     const { data, error } = await supabase
       .from('User')
       .insert([newUser])
@@ -149,14 +146,7 @@ app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    if (!data || data.length === 0) {
-      return res.status(500).json({ error: "User not created" });
-    }
-
-    res.json({
-      user: data[0],
-      token: data[0].id
-    });
+    res.json({ user: data[0], token: data[0].id });
 
   } catch (err) {
     console.error("REGISTER CRASH:", err);
@@ -164,25 +154,7 @@ app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   }
 });
 
-app.get('/messages/conversations', async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('Conversation')
-      .select('*');
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json(data);
-
-  } catch (err) {
-    console.error("MESSAGES ERROR:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ✅ LOGIN (SUPABASE)
+/* ======================== LOGIN ======================== */
 app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -205,25 +177,9 @@ app.post('/auth/login', async (req, res) => {
     res.json({ user, token: user.id });
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Login failed" });
   }
 });
-
- app.get('/test-supabase', async (req, res) => {
-  try {
-    const { data, error } = await supabase.from('User').select('*');
-
-    console.log("TEST DATA:", data);
-    console.log("TEST ERROR:", error);
-
-    res.json({ data, error });
-  } catch (err) {
-    console.error("TEST FAILED:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-/* ======================== KEEP REST OF YOUR CODE SAME ======================== */
 
 /* ======================== START ======================== */
 app.listen(PORT, () => {
