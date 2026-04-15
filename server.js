@@ -164,6 +164,24 @@ app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   }
 });
 
+app.get('/messages/conversations', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('Conversation')
+      .select('*');
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json(data);
+
+  } catch (err) {
+    console.error("MESSAGES ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ✅ LOGIN (SUPABASE)
 app.post('/auth/login', async (req, res) => {
   try {
