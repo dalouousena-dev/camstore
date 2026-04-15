@@ -154,6 +154,29 @@ app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   }
 });
 
+app.post('/pay', async (req, res) => {
+  try {
+    console.log("PAY BODY:", req.body);
+
+    const { productId, amount } = req.body;
+
+    if (!productId || !amount) {
+      return res.status(400).json({ error: "Missing payment data" });
+    }
+
+    // ✅ For now (fake payment logic)
+    res.json({
+      success: true,
+      message: "Payment successful",
+      transactionId: Date.now().toString()
+    });
+
+  } catch (err) {
+    console.error("PAY ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* ======================== LOGIN ======================== */
 app.post('/auth/login', async (req, res) => {
   try {
