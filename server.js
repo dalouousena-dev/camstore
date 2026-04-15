@@ -205,6 +205,28 @@ app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+app.get('/products/my-listings', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { data, error } = await supabase
+      .from('Product')
+      .select('*')
+      .eq('ownerId', userId)
+      .order('createdAt', { ascending: false });
+
+    if (error) {
+      console.error("MY LISTINGS ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ products: data });
+
+  } catch (err) {
+    console.error("MY LISTINGS CRASH:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/pay', async (req, res) => {
   try {
@@ -255,6 +277,7 @@ app.post('/auth/login', async (req, res) => {
     res.status(500).json({ error: "Login failed" });
   }
 });
+
 
 /* ======================== START ======================== */
 app.listen(PORT, () => {
