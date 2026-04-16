@@ -268,7 +268,37 @@ app.post('/auth/login', async (req, res) => {
 
   res.json({ user, token: user.id });
 });
+/* ======================== PAYMENT ======================== */
 
+app.post('/pay', authenticateToken, async (req, res) => {
+  try {
+    const { productId, phone, method } = req.body;
+
+    console.log("💰 Payment request:", req.body);
+
+    if (!productId || !phone || !method) {
+      return res.status(400).json({ error: 'Missing payment data' });
+    }
+
+    // ✅ FAKE PAYMENT SUCCESS (for now)
+    // Later you can integrate real Orange / MTN API
+
+    // Update product as paid (optional)
+    await supabase
+      .from('Product')
+      .update({ published: true })
+      .eq('id', productId);
+
+    res.json({
+      success: true,
+      message: "Payment successful"
+    });
+
+  } catch (err) {
+    console.error("❌ PAYMENT ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== START ======================== */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
