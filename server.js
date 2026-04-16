@@ -121,11 +121,19 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
 });
 
 // GET PRODUCTS WITH USER
+// GET PRODUCTS WITH USER
 app.get('/products', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('Product')
-      .select('*')
+      .select(`
+        *,
+        User (
+          id,
+          fullName,
+          location
+        )
+      `)
       .eq('published', true)
       .order('createdAt', { ascending: false });
 
