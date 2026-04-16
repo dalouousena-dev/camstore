@@ -122,22 +122,23 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
 
 // GET PRODUCTS WITH USER
 app.get('/products', async (req, res) => {
-  const { data, error } = await supabase
-    .from('Product')
-    .select(`
-      *,
-      User (
-        id,
-        fullName,
-        location
-      )
-    `)
-    .eq('published', true)
-    .order('createdAt', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from('Product')
+      .select('*')
+      .eq('published', true)
+      .order('createdAt', { ascending: false });
 
-  if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error("PRODUCT FETCH ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
 
-  res.json({ products: data });
+    res.json({ products: data });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ======================== FAVORITES ======================== */
@@ -186,7 +187,31 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
 
   res.json({ favorites: products || [] });
 });
+app.put('/products/publish/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
 
+    if (!id) {
+      return res.status(400).json({ error: 'Product ID is required' });
+    }
+
+    const { data, error } = await supabase
+      .from('Product')
+      .update({ published: true })
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error("PUBLISH ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true, product: data[0] });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== MESSAGES ======================== */
 
 app.post('/messages', authenticateToken, async (req, res) => {
