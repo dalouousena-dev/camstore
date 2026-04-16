@@ -19,7 +19,7 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-/* ======================== PATH CONFIG ======================== */
+/* ======================== PATH ======================== */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -33,7 +33,6 @@ app.use('/uploads', express.static(uploadsDir));
 /* ======================== MIDDLEWARE ======================== */
 app.use(cors({ origin: '*' }));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 /* ======================== MULTER ======================== */
 const storage = multer.diskStorage({
@@ -43,25 +42,21 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + '-' + safeName);
   }
 });
-
 const upload = multer({ storage });
 
 /* ======================== AUTH ======================== */
 async function authenticateToken(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ message: 'No token' });
+  const token = req.headers.authorization?.split(' ')[1];
 
-  const token = authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'No token' });
 
-  const { data: user, error } = await supabase
+  const { data: user } = await supabase
     .from('User')
     .select('*')
     .eq('id', token)
     .single();
 
-  if (error || !user) {
-    return res.status(401).json({ message: 'Invalid token' });
-  }
+  if (!user) return res.status(401).json({ message: 'Invalid token' });
 
   req.user = user;
   next();
@@ -74,32 +69,24 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
   try {
     const { title, description, price, location } = req.body;
 
-    if (!title || !description || !price) {
-      return res.status(400).json({ error: "Missing fields" });
-    }
-
-    const newProduct = {
-      id: Date.now().toString(),
-      title,
-      description,
-      price: parseInt(price),
-      currency: 'XAF',
-      images: req.file ? `/uploads/${req.file.filename}` : null,
-      user_id: req.user.id, // ✅ FIXED
-      location: location || null, // ✅ FIXED
-      published: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
     const { data, error } = await supabase
       .from('Product')
-      .insert([newProduct])
+      .insert([{
+        id: Date.now().toString(),
+        title,
+        description,
+        price: parseInt(price),
+        currency: 'XAF',
+        images: req.file ? `/uploads/${req.file.filename}` : null,
+        user_id: req.user.id,
+        location: location || null,
+        published: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }])
       .select();
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    if (error) return res.status(500).json({ error: error.message });
 
     res.json({ product: data[0] });
 
@@ -108,7 +95,7 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
   }
 });
 
-// GET PRODUCTS WITH USER JOIN
+// GET PRODUCTS + USER JOIN
 app.get('/products', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -120,9 +107,7 @@ app.get('/products', async (req, res) => {
       .eq('published', true)
       .order('createdAt', { ascending: false });
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    if (error) return res.status(500).json({ error: error.message });
 
     res.json({ products: data });
 
@@ -131,72 +116,101 @@ app.get('/products', async (req, res) => {
   }
 });
 
-// MY LISTINGS
+// MY PRODUCTS
 app.get('/products/my-listings', authenticateToken, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('Product')
-      .select('*')
-      .eq('user_id', req.user.id) // ✅ FIXED
-      .order('createdAt', { ascending: false });
+  const { data } = await supabase
+    .from('Product')
+    .select('*')
+    .eq('user_id', req.user.id);
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json({ products: data });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ products: data });
 });
 
 /* ======================== FAVORITES ======================== */
 
+// ADD FAVORITE
 app.post('/products/favorite', authenticateToken, async (req, res) => {
-  try {
-    const { productId } = req.body;
+  const { productId } = req.body;
 
-    const { error } = await supabase
-      .from('Favorite')
-      .insert([{
-        id: Date.now().toString(),
-        user_id: req.user.id,
-        product_id: productId,
-        createdAt: new Date().toISOString()
-      }]);
+  const { error } = await supabase
+    .from('Favorite')
+    .insert([{
+      id: Date.now().toString(),
+      userId: req.user.id,
+      productId,
+      createdAt: new Date().toISOString()
+    }]);
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+  if (error) return res.status(500).json({ error: error.message });
 
-    res.json({ success: true });
+  res.json({ success: true });
+});
 
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// GET FAVORITES
+app.get('/products/favorites', authenticateToken, async (req, res) => {
+  const { data: favorites } = await supabase
+    .from('Favorite')
+    .select('productId')
+    .eq('userId', req.user.id);
+
+  const ids = favorites.map(f => f.productId);
+
+  const { data: products } = await supabase
+    .from('Product')
+    .select('*')
+    .in('id', ids);
+
+  res.json({ favorites: products });
 });
 
 /* ======================== MESSAGES ======================== */
 
-// SEND MESSAGE
+// CREATE OR GET CONVERSATION
+const getConversationId = async (buyerId, sellerId, productId) => {
+  const { data } = await supabase
+    .from('Conversation')
+    .select('*')
+    .eq('buyerId', buyerId)
+    .eq('sellerId', sellerId)
+    .eq('productId', productId)
+    .single();
+
+  if (data) return data.productId + buyerId + sellerId;
+
+  await supabase.from('Conversation').insert([{
+    productId,
+    buyerId,
+    sellerId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }]);
+
+  return productId + buyerId + sellerId;
+};
+
+// SEND MESSAGE (MATCHES YOUR TABLE)
 app.post('/messages', authenticateToken, async (req, res) => {
   try {
-    const { receiverId, text } = req.body;
+    const { receiverId, text, productId } = req.body;
+
+    const conversationId = await getConversationId(
+      req.user.id,
+      receiverId,
+      productId || 'general'
+    );
 
     const { error } = await supabase
       .from('Message')
       .insert([{
         id: Date.now().toString(),
+        conversationId,
         senderId: req.user.id,
-        receiverId,
-        text,
+        content: text, // ✅ matches your table
+        read: false,
         createdAt: new Date().toISOString()
       }]);
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    if (error) return res.status(500).json({ error: error.message });
 
     res.json({ success: true });
 
@@ -208,17 +222,12 @@ app.post('/messages', authenticateToken, async (req, res) => {
 // GET MESSAGES
 app.get('/messages', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.id;
-
     const { data, error } = await supabase
       .from('Message')
       .select('*')
-      .or(`senderId.eq.${userId},receiverId.eq.${userId}`)
       .order('createdAt', { ascending: true });
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    if (error) return res.status(500).json({ error: error.message });
 
     res.json(data);
 
@@ -229,61 +238,41 @@ app.get('/messages', authenticateToken, async (req, res) => {
 
 /* ======================== AUTH ======================== */
 
-app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
-  try {
-    const { email, password, fullName, phone, location } = req.body;
+app.post('/auth/register', async (req, res) => {
+  const { email, password, fullName, location } = req.body;
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+  const hashed = await bcrypt.hash(password, 10);
 
-    const newUser = {
+  const { data } = await supabase
+    .from('User')
+    .insert([{
       id: Date.now().toString(),
       email,
-      password: hashedPassword,
+      password: hashed,
       fullName,
-      phone: phone || null,
-      location: location || null,
+      location,
       role: 'user',
-      profileImage: req.file ? `/uploads/${req.file.filename}` : null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+      createdAt: new Date().toISOString()
+    }])
+    .select();
 
-    const { data, error } = await supabase
-      .from('User')
-      .insert([newUser])
-      .select();
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json({ user: data[0], token: data[0].id });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ user: data[0], token: data[0].id });
 });
 
 app.post('/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
+  const { email, password } = req.body;
 
-    const { data: user } = await supabase
-      .from('User')
-      .select('*')
-      .eq('email', email)
-      .single();
+  const { data: user } = await supabase
+    .from('User')
+    .select('*')
+    .eq('email', email)
+    .single();
 
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
+  const valid = await bcrypt.compare(password, user.password);
 
-    res.json({ user, token: user.id });
+  if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
 
-  } catch {
-    res.status(500).json({ error: "Login failed" });
-  }
+  res.json({ user, token: user.id });
 });
 
 /* ======================== START ======================== */
