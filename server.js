@@ -229,10 +229,10 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
       .select('id, fullName, location')
       .in('id', userIds);
 
-    const finalProducts = products.map(p => ({
-      ...p,
-      User: users?.find(u => u.id === p.user_id) || null
-    }));
+   const finalProducts = products.map(p => ({
+  ...p,
+  User: users?.find(u => String(u.id) === String(p.user_id)) || null
+}));
 
     res.json({ favorites: finalProducts });
 
@@ -292,9 +292,10 @@ app.get('/products/my-listings', authenticateToken, async (req, res) => {
 
 app.post('/messages', authenticateToken, async (req, res) => {
   try {
-    const { receiverId, text } = req.body;
+    const { receiverId, text, productId } = req.body;
 
-    if (!receiverId || !text) {
+    // ✅ CHECK REQUIRED FIELDS
+    if (!receiverId || !text || !productId) {
       return res.status(400).json({ error: 'Missing data' });
     }
 
@@ -305,7 +306,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
       .from('Conversation')
       .insert([{
         id: conversationId,
-        productId: null,
+        productId: productId, // ✅ FIXED HERE
         buyerId: req.user.id,
         sellerId: receiverId,
         createdAt: new Date().toISOString(),
@@ -335,7 +336,6 @@ app.post('/messages', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 /* ======================== AUTH ======================== */
 
 // REGISTER
