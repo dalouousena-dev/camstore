@@ -337,7 +337,31 @@ app.post('/messages', authenticateToken, async (req, res) => {
   }
 });
 /* ======================== AUTH ======================== */
+app.get('/messages', authenticateToken, async (req, res) => {
+  try {
+    const { user } = req.query;
 
+    if (!user) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    // GET CONVERSATIONS BETWEEN USERS
+    const { data: conversations, error } = await supabase
+      .from('Conversation')
+      .select('*')
+      .or(`buyerId.eq.${req.user.id},sellerId.eq.${req.user.id}`)
+      .or(`buyerId.eq.${user},sellerId.eq.${user}`);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ conversations });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // REGISTER
 app.post('/auth/register', upload.single('image'), async (req, res) => {
   try {
