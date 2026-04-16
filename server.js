@@ -68,12 +68,11 @@ async function authenticateToken(req, res, next) {
 }
 
 /* ======================== PRODUCTS ======================== */
+
+// CREATE PRODUCT
 app.post('/products', authenticateToken, upload.single('image'), async (req, res) => {
   try {
-    console.log("BODY:", req.body);
-    console.log("FILE:", req.file);
-
-    const { title, description, price } = req.body;
+    const { title, description, price, location } = req.body;
 
     if (!title || !description || !price) {
       return res.status(400).json({ error: "Missing fields" });
@@ -86,13 +85,12 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
       price: parseInt(price),
       currency: 'XAF',
       images: req.file ? `/uploads/${req.file.filename}` : null,
-      ownerId: req.user.id, // ✅ FIXED (NO MORE NULL)
+      user_id: req.user.id, // ✅ FIXED
+      location: location || null, // ✅ FIXED
       published: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-
-    console.log("NEW PRODUCT:", newProduct);
 
     const { data, error } = await supabase
       .from('Product')
@@ -100,23 +98,25 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
       .select();
 
     if (error) {
-      console.error("SUPABASE ERROR FULL:", error);
       return res.status(500).json({ error: error.message });
     }
 
     res.json({ product: data[0] });
 
   } catch (err) {
-    console.error("PRODUCT CRASH:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
- app.get('/products', async (req, res) => {
+// GET PRODUCTS WITH USER JOIN
+app.get('/products', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('Product')
-      .select('*')
+      .select(`
+        *,
+        User ( fullName, location )
+      `)
       .eq('published', true)
       .order('createdAt', { ascending: false });
 
@@ -127,51 +127,111 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
     res.json({ products: data });
 
   } catch (err) {
-    console.error("GET PRODUCTS ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/products/publish/:id', authenticateToken, async (req, res) => {
+// MY LISTINGS
+app.get('/products/my-listings', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
-
-    console.log("Publishing product ID:", id);
-
     const { data, error } = await supabase
       .from('Product')
-      .update({
-        published: true,
-        updatedAt: new Date().toISOString()
-      })
-      .eq('id', id)
-      .select();
+      .select('*')
+      .eq('user_id', req.user.id) // ✅ FIXED
+      .order('createdAt', { ascending: false });
 
     if (error) {
-      console.error("SUPABASE ERROR:", error);
       return res.status(500).json({ error: error.message });
     }
 
-    if (!data || data.length === 0) {
-      return res.status(400).json({ error: "Product not found or not updated" }); // ✅ THIS WAS YOUR 400
-    }
-
-    res.json({ product: data[0] });
+    res.json({ products: data });
 
   } catch (err) {
-    console.error("PUBLISH CRASH:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/* ======================== AUTH ROUTES ======================== */
+/* ======================== FAVORITES ======================== */
+
+app.post('/products/favorite', authenticateToken, async (req, res) => {
+  try {
+    const { productId } = req.body;
+
+    const { error } = await supabase
+      .from('Favorite')
+      .insert([{
+        id: Date.now().toString(),
+        user_id: req.user.id,
+        product_id: productId,
+        createdAt: new Date().toISOString()
+      }]);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ======================== MESSAGES ======================== */
+
+// SEND MESSAGE
+app.post('/messages', authenticateToken, async (req, res) => {
+  try {
+    const { receiverId, text } = req.body;
+
+    const { error } = await supabase
+      .from('Message')
+      .insert([{
+        id: Date.now().toString(),
+        senderId: req.user.id,
+        receiverId,
+        text,
+        createdAt: new Date().toISOString()
+      }]);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET MESSAGES
+app.get('/messages', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { data, error } = await supabase
+      .from('Message')
+      .select('*')
+      .or(`senderId.eq.${userId},receiverId.eq.${userId}`)
+      .order('createdAt', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json(data);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ======================== AUTH ======================== */
+
 app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
   try {
     const { email, password, fullName, phone, location } = req.body;
-
-    if (!email || !password || !fullName) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -194,77 +254,25 @@ app.post('/auth/register', upload.single('profileImage'), async (req, res) => {
       .select();
 
     if (error) {
-      console.error("SUPABASE ERROR:", error);
       return res.status(500).json({ error: error.message });
     }
 
     res.json({ user: data[0], token: data[0].id });
 
   } catch (err) {
-    console.error("REGISTER CRASH:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.get('/products/my-listings', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    const { data, error } = await supabase
-      .from('Product')
-      .select('*')
-      .eq('ownerId', userId)
-      .order('createdAt', { ascending: false });
-
-    if (error) {
-      console.error("MY LISTINGS ERROR:", error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    res.json({ products: data });
-
-  } catch (err) {
-    console.error("MY LISTINGS CRASH:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/pay', async (req, res) => {
-  try {
-    console.log("PAY BODY:", req.body);
-
-    const { productId, amount } = req.body;
-
-    if (!productId || !amount) {
-      return res.status(400).json({ error: "Missing payment data" });
-    }
-
-    // ✅ For now (fake payment logic)
-    res.json({
-      success: true,
-      message: "Payment successful",
-      transactionId: Date.now().toString()
-    });
-
-  } catch (err) {
-    console.error("PAY ERROR:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* ======================== LOGIN ======================== */
 app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const { data: user, error } = await supabase
+    const { data: user } = await supabase
       .from('User')
       .select('*')
       .eq('email', email)
       .single();
-
-    if (error || !user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
@@ -273,11 +281,10 @@ app.post('/auth/login', async (req, res) => {
 
     res.json({ user, token: user.id });
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "Login failed" });
   }
 });
-
 
 /* ======================== START ======================== */
 app.listen(PORT, () => {
