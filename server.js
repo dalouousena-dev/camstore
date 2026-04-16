@@ -242,6 +242,11 @@ app.post('/auth/register', upload.single('image'), async (req, res) => {
   try {
     const { email, password, fullName, location, phone } = req.body;
 
+    // ✅ CHECK REQUIRED FIELDS
+    if (!email || !password || !fullName) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
     const hashed = await bcrypt.hash(password, 10);
 
     const newUser = {
@@ -249,8 +254,8 @@ app.post('/auth/register', upload.single('image'), async (req, res) => {
       email,
       password: hashed,
       fullName,
-      location,
-      phone,
+      location: location || null,
+      phone: phone || null,
       profileImage: req.file ? `/uploads/${req.file.filename}` : null,
       role: 'user',
       createdAt: new Date().toISOString(),
@@ -263,17 +268,17 @@ app.post('/auth/register', upload.single('image'), async (req, res) => {
       .select();
 
     if (error) {
-      console.error("REGISTER ERROR:", error);
+      console.error("❌ SUPABASE ERROR:", error);
       return res.status(500).json({ error: error.message });
     }
 
     res.json({ user: data[0], token: data[0].id });
 
   } catch (err) {
+    console.error("❌ REGISTER CRASH:", err); // 🔥 THIS WILL SHOW REAL ERROR
     res.status(500).json({ error: err.message });
   }
 });
-
 // LOGIN
 app.post('/auth/login', async (req, res) => {
   try {
