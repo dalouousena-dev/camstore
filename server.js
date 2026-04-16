@@ -46,20 +46,34 @@ const upload = multer({ storage });
 
 /* ======================== AUTH ======================== */
 async function authenticateToken(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
 
-  if (!token) return res.status(401).json({ message: 'No token' });
+    if (!token) {
+      console.log("❌ No token provided");
+      return res.status(401).json({ message: 'No token' });
+    }
 
-  const { data: user } = await supabase
-    .from('User')
-    .select('*')
-    .eq('id', token)
-    .single();
+    const { data: user, error } = await supabase
+      .from('User')
+      .select('*')
+      .eq('id', token)
+      .single();
 
-  if (!user) return res.status(401).json({ message: 'Invalid token' });
+    if (error || !user) {
+      console.log("❌ Invalid token:", token);
+      return res.status(401).json({ message: 'Invalid token' });
+    }
 
-  req.user = user;
-  next();
+    console.log("✅ Authenticated user:", user.id);
+
+    req.user = user;
+    next();
+
+  } catch (err) {
+    console.error("AUTH ERROR:", err);
+    res.status(500).json({ error: 'Auth failed' });
+  }
 }
 
 /* ======================== PRODUCTS ======================== */
@@ -67,43 +81,53 @@ async function authenticateToken(req, res, next) {
 // CREATE PRODUCT
 app.post('/products', authenticateToken, upload.single('image'), async (req, res) => {
   try {
+    console.log("📦 BODY:", req.body);
+    console.log("👤 USER:", req.user);
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'User not authenticated properly' });
+    }
+
     const { title, description, price, location } = req.body;
+
+    const newProduct = {
+      id: Date.now().toString(),
+      title,
+      description,
+      price: parseInt(price),
+      currency: 'XAF',
+      images: req.file ? `/uploads/${req.file.filename}` : null,
+      user_id: req.user.id,
+      location: location || null,
+      published: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
     const { data, error } = await supabase
       .from('Product')
-      .insert([{
-        id: Date.now().toString(),
-        title,
-        description,
-        price: parseInt(price),
-        currency: 'XAF',
-        images: req.file ? `/uploads/${req.file.filename}` : null,
-        user_id: req.user.id,
-        location: location || null,
-        published: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }])
+      .insert([newProduct])
       .select();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error("❌ SUPABASE ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
 
     res.json({ product: data[0] });
 
   } catch (err) {
+    console.error("❌ SERVER ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET PRODUCTS + USER JOIN
+// GET PRODUCTS (SAFE VERSION)
 app.get('/products', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('Product')
-      .select(`
-        *,
-        User ( fullName, location )
-      `)
+      .select('*')
       .eq('published', true)
       .order('createdAt', { ascending: false });
 
@@ -165,52 +189,29 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
 
 /* ======================== MESSAGES ======================== */
 
-// CREATE OR GET CONVERSATION
-const getConversationId = async (buyerId, sellerId, productId) => {
-  const { data } = await supabase
-    .from('Conversation')
-    .select('*')
-    .eq('buyerId', buyerId)
-    .eq('sellerId', sellerId)
-    .eq('productId', productId)
-    .single();
-
-  if (data) return data.productId + buyerId + sellerId;
-
-  await supabase.from('Conversation').insert([{
-    productId,
-    buyerId,
-    sellerId,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }]);
-
-  return productId + buyerId + sellerId;
-};
-
-// SEND MESSAGE (MATCHES YOUR TABLE)
+// SEND MESSAGE
 app.post('/messages', authenticateToken, async (req, res) => {
   try {
-    const { receiverId, text, productId } = req.body;
+    const { receiverId, text } = req.body;
 
-    const conversationId = await getConversationId(
-      req.user.id,
-      receiverId,
-      productId || 'general'
-    );
+    if (!receiverId || !text) {
+      return res.status(400).json({ error: 'Missing data' });
+    }
 
     const { error } = await supabase
       .from('Message')
       .insert([{
         id: Date.now().toString(),
-        conversationId,
         senderId: req.user.id,
-        content: text, // ✅ matches your table
+        content: text,
         read: false,
         createdAt: new Date().toISOString()
       }]);
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error("❌ MESSAGE ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
 
     res.json({ success: true });
 
@@ -221,19 +222,12 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
 // GET MESSAGES
 app.get('/messages', authenticateToken, async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('Message')
-      .select('*')
-      .order('createdAt', { ascending: true });
+  const { data } = await supabase
+    .from('Message')
+    .select('*')
+    .order('createdAt', { ascending: true });
 
-    if (error) return res.status(500).json({ error: error.message });
-
-    res.json(data);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json(data);
 });
 
 /* ======================== AUTH ======================== */
