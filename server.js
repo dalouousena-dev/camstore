@@ -141,6 +141,78 @@ app.get('/products', async (req, res) => {
   }
 });
 
+ /* ======================== FAVORITES ======================== */
+
+// ADD TO FAVORITES
+app.post('/products/favorite', authenticateToken, async (req, res) => {
+  try {
+    const { productId } = req.body;
+
+    if (!productId) {
+      return res.status(400).json({ error: 'Missing productId' });
+    }
+
+    const userId = req.user.id;
+
+    // ✅ prevent duplicates
+    const { data: existing } = await supabase
+      .from('Favorite')
+      .select('*')
+      .eq('userId', userId)
+      .eq('productId', productId)
+      .single();
+
+    if (existing) {
+      return res.json({ message: 'Already in favorites' });
+    }
+
+    const { data, error } = await supabase
+      .from('Favorite')
+      .insert([
+        {
+          id: Date.now().toString(),
+          userId,
+          productId
+        }
+      ]);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true, data });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// GET USER FAVORITES
+app.get('/products/favorites', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { data: favorites, error } = await supabase
+      .from('Favorite')
+      .select('*')
+      .eq('userId', userId);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const productIds = favorites.map(f => f.productId);
+
+    const { data: products } = await supabase
+      .from('Product')
+      .select('*')
+      .in('id', productIds);
+
+    res.json({ products });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== AUTH ======================== */
 
 // REGISTER (FIXED HERE)
