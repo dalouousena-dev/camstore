@@ -174,27 +174,45 @@ app.post('/products/favorite', authenticateToken, async (req, res) => {
 });
 
 app.get('/products/favorites', authenticateToken, async (req, res) => {
-  const { data: favorites } = await supabase
-    .from('Favorite')
-    .select('productId')
-    .eq('userId', req.user.id);
+  try {
+    const { data: favorites, error: favError } = await supabase
+      .from('Favorite')
+      .select('productId')
+      .eq('userId', req.user.id);
 
-  const ids = favorites?.map(f => f.productId) || [];
+    if (favError) {
+      return res.status(500).json({ error: favError.message });
+    }
 
-  const { data: products } = await supabase
-    .from('Product')
-    .select(`
-      *,
-      User (
-        id,
-        fullName,
-        location
-      )
-    `)
-    .in('id', ids);
+    const ids = (favorites || []).map(f => String(f.productId));
 
-  res.json({ favorites: products || [] });
+    if (ids.length === 0) {
+      return res.json({ favorites: [] });
+    }
+
+    const { data: products, error } = await supabase
+      .from('Product')
+      .select(`
+        *,
+        User (
+          id,
+          fullName,
+          location
+        )
+      `)
+      .in('id', ids);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ favorites: products || [] });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
+
 app.put('/products/publish/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
