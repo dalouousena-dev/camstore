@@ -215,6 +215,39 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
 });
 /* ======================== AUTH ======================== */
 
+/* ======================== PAYMENT ======================== */
+
+app.post('/pay', authenticateToken, async (req, res) => {
+  try {
+    const { productId, phone, method } = req.body;
+
+    if (!productId || !phone || !method) {
+      return res.status(400).json({ error: 'Missing payment data' });
+    }
+
+    // ⚠️ SIMULATED PAYMENT (you can replace later with real API)
+    console.log("Payment request:", {
+      user: req.user.id,
+      productId,
+      phone,
+      method
+    });
+
+    // OPTIONAL: mark product as paid / published
+    await supabase
+      .from('Product')
+      .update({ published: true })
+      .eq('id', productId);
+
+    res.json({
+      success: true,
+      message: 'Payment successful (simulated)'
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // REGISTER (FIXED HERE)
 app.post('/auth/register', upload.single('image'), async (req, res) => {
   try {
