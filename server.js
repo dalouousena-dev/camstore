@@ -146,18 +146,19 @@ app.get('/products', async (req, res) => {
 // REGISTER (FIXED HERE)
 app.post('/auth/register', upload.single('image'), async (req, res) => {
   try {
-    const { email, password, fullName } = req.body;
+    // ✅ FIX: add phone + location
+    const { email, password, fullName, phone, location } = req.body;
 
     const hashed = await bcrypt.hash(password, 10);
 
     let profileImage = null;
 
     if (req.file) {
-     const fileExt = req.file.originalname.split('.').pop();
-const fileName = `profile-${Date.now()}.${fileExt}`;
+      const fileExt = req.file.originalname.split('.').pop();
+      const fileName = `profile-${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('avatars') // ✅ FIXED BUCKET
+        .from('avatars')
         .upload(fileName, req.file.buffer, {
           contentType: req.file.mimetype
         });
@@ -167,12 +168,13 @@ const fileName = `profile-${Date.now()}.${fileExt}`;
       }
 
       const { data } = supabase.storage
-        .from('avatars') // ✅ FIXED BUCKET
+        .from('avatars')
         .getPublicUrl(fileName);
 
       profileImage = data.publicUrl;
     }
 
+    // ✅ FIX: insert phone + location
     const { data, error } = await supabase
       .from('User')
       .insert([{
@@ -180,6 +182,8 @@ const fileName = `profile-${Date.now()}.${fileExt}`;
         email,
         password: hashed,
         fullName,
+        phone: phone || null,        // ✅ ADDED
+        location: location || null,  // ✅ ADDED
         profileImage
       }])
       .select();
