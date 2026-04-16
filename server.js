@@ -28,15 +28,17 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-app.get('/', (req, res) => {
-  res.json({ message: 'API is running 🚀' });
-});
-
 app.use('/uploads', express.static(uploadsDir));
 
-/* ======================== MIDDLEWARE ======================== */
-app.use(cors({ origin: '*' }));
+/* ======================== CORS ======================== */
+app.use(cors({
+  origin: ['http://localhost:5173', 'https://computerarchi.com'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 /* ======================== MULTER ======================== */
 const storage = multer.diskStorage({
@@ -46,22 +48,25 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + '-' + safeName);
   }
 });
+
 const upload = multer({ storage });
 
-/* ======================== AUTH ======================== */
+/* ======================== AUTH MIDDLEWARE ======================== */
 async function authenticateToken(req, res, next) {
   try {
     const token = req.headers.authorization?.split(' ')[1];
 
     if (!token) return res.status(401).json({ message: 'No token' });
 
-    const { data: user } = await supabase
+    const { data: user, error } = await supabase
       .from('User')
       .select('*')
       .eq('id', token)
       .single();
 
-    if (!user) return res.status(401).json({ message: 'Invalid token' });
+    if (error || !user) {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
 
     req.user = user;
     next();
@@ -78,11 +83,17 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
   try {
     const { title, description, price, location } = req.body;
 
+    const safePrice = Number(price);
+
+    if (!title || !price) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
     const newProduct = {
       id: Date.now().toString(),
       title,
       description,
-      price: Number(price),
+      price: safePrice,
       currency: 'XAF',
       images: req.file ? `/uploads/${req.file.filename}` : null,
       user_id: req.user.id,
@@ -97,7 +108,10 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
       .insert([newProduct])
       .select();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error("PRODUCT ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
 
     res.json({ product: data[0] });
 
@@ -106,7 +120,7 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
   }
 });
 
-// ✅ FIXED: GET PRODUCTS WITH SELLER INFO
+// GET PRODUCTS WITH USER
 app.get('/products', async (req, res) => {
   const { data, error } = await supabase
     .from('Product')
@@ -129,20 +143,25 @@ app.get('/products', async (req, res) => {
 /* ======================== FAVORITES ======================== */
 
 app.post('/products/favorite', authenticateToken, async (req, res) => {
-  const { productId } = req.body;
+  try {
+    const { productId } = req.body;
 
-  const { error } = await supabase
-    .from('Favorite')
-    .insert([{
-      id: Date.now().toString(),
-      userId: req.user.id,
-      productId,
-      createdAt: new Date().toISOString()
-    }]);
+    const { error } = await supabase
+      .from('Favorite')
+      .insert([{
+        id: Date.now().toString(),
+        userId: req.user.id,
+        productId,
+        createdAt: new Date().toISOString()
+      }]);
 
-  if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(500).json({ error: error.message });
 
-  res.json({ success: true });
+    res.json({ success: true });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/products/favorites', authenticateToken, async (req, res) => {
@@ -170,7 +189,6 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
 
 /* ======================== MESSAGES ======================== */
 
-// ✅ FIXED: CREATE CONVERSATION + MESSAGE
 app.post('/messages', authenticateToken, async (req, res) => {
   try {
     const { receiverId, text } = req.body;
@@ -179,18 +197,25 @@ app.post('/messages', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Missing data' });
     }
 
-    // create conversation
     const conversationId = Date.now().toString();
 
-    await supabase.from('Conversation').insert([{
-      productId: null,
-      buyerId: req.user.id,
-      sellerId: receiverId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }]);
+    // CREATE CONVERSATION
+    const { error: convError } = await supabase
+      .from('Conversation')
+      .insert([{
+        id: conversationId,
+        productId: null,
+        buyerId: req.user.id,
+        sellerId: receiverId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }]);
 
-    // create message
+    if (convError) {
+      return res.status(500).json({ error: convError.message });
+    }
+
+    // CREATE MESSAGE
     const { error } = await supabase
       .from('Message')
       .insert([{
@@ -212,41 +237,69 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
 /* ======================== AUTH ======================== */
 
-app.post('/auth/register', async (req, res) => {
-  const { email, password, fullName, location } = req.body;
+// REGISTER
+app.post('/auth/register', upload.single('image'), async (req, res) => {
+  try {
+    const { email, password, fullName, location, phone } = req.body;
 
-  const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 10);
 
-  const { data } = await supabase
-    .from('User')
-    .insert([{
+    const newUser = {
       id: Date.now().toString(),
       email,
       password: hashed,
       fullName,
       location,
+      phone,
+      profileImage: req.file ? `/uploads/${req.file.filename}` : null,
       role: 'user',
-      createdAt: new Date().toISOString()
-    }])
-    .select();
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
-  res.json({ user: data[0], token: data[0].id });
+    const { data, error } = await supabase
+      .from('User')
+      .insert([newUser])
+      .select();
+
+    if (error) {
+      console.error("REGISTER ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ user: data[0], token: data[0].id });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
+// LOGIN
 app.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const { data: user } = await supabase
-    .from('User')
-    .select('*')
-    .eq('email', email)
-    .single();
+    const { data: user, error } = await supabase
+      .from('User')
+      .select('*')
+      .eq('email', email)
+      .single();
 
-  const valid = await bcrypt.compare(password, user.password);
+    if (error || !user) {
+      return res.status(400).json({ message: 'User not found' });
+    }
 
-  if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
+    const valid = await bcrypt.compare(password, user.password);
 
-  res.json({ user, token: user.id });
+    if (!valid) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    res.json({ user, token: user.id });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ======================== PAYMENT ======================== */
@@ -256,19 +309,26 @@ app.post('/pay', authenticateToken, async (req, res) => {
     const { productId } = req.body;
 
     if (!productId) {
-      return res.status(400).json({ error: 'Product ID is required' });
+      return res.status(400).json({ error: 'Product ID required' });
     }
 
-    await supabase
+    const { error } = await supabase
       .from('Product')
       .update({ published: true })
       .eq('id', productId);
+
+    if (error) return res.status(500).json({ error: error.message });
 
     res.json({ success: true });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+/* ======================== ROOT ======================== */
+app.get('/', (req, res) => {
+  res.json({ message: 'API is running 🚀' });
 });
 
 /* ======================== START ======================== */
