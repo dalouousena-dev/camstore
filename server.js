@@ -28,6 +28,10 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+app.get('/', (req, res) => {
+  res.json({ message: 'API is running 🚀' });
+});
+
 app.use('/uploads', express.static(uploadsDir));
 
 /* ======================== MIDDLEWARE ======================== */
