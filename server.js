@@ -163,16 +163,30 @@ app.post('/products/favorite', authenticateToken, async (req, res) => {
   try {
     const { productId } = req.body;
 
+    // CHECK IF ALREADY EXISTS
+    const { data: existing } = await supabase
+      .from('Favorite')
+      .select('*')
+      .eq('userId', req.user.id)
+      .eq('productId', productId)
+      .single();
+
+    if (existing) {
+      return res.json({ success: true, message: 'Already in favorites' });
+    }
+
     const { error } = await supabase
       .from('Favorite')
       .insert([{
         id: Date.now().toString(),
         userId: req.user.id,
-        productId,
+        productId: String(productId),
         createdAt: new Date().toISOString()
       }]);
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
 
     res.json({ success: true });
 
@@ -200,23 +214,30 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
 
     const { data: products, error } = await supabase
       .from('Product')
-      .select(`
-        *,
-        User (
-          id,
-          fullName,
-          location
-        )
-      `)
+      .select('*')
       .in('id', ids);
 
     if (error) {
       return res.status(500).json({ error: error.message });
     }
 
-    res.json({ favorites: products || [] });
+    // GET USERS
+    const userIds = [...new Set(products.map(p => p.user_id))];
+
+    const { data: users } = await supabase
+      .from('User')
+      .select('id, fullName, location')
+      .in('id', userIds);
+
+    const finalProducts = products.map(p => ({
+      ...p,
+      User: users?.find(u => u.id === p.user_id) || null
+    }));
+
+    res.json({ favorites: finalProducts });
 
   } catch (err) {
+    console.error("FAVORITES ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
