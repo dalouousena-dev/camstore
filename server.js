@@ -124,16 +124,10 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
 // GET PRODUCTS WITH USER
 app.get('/products', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    // STEP 1: GET PRODUCTS
+    const { data: products, error } = await supabase
       .from('Product')
-      .select(`
-        *,
-        User (
-          id,
-          fullName,
-          location
-        )
-      `)
+      .select('*')
       .eq('published', true)
       .order('createdAt', { ascending: false });
 
@@ -142,13 +136,27 @@ app.get('/products', async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    res.json({ products: data });
+    // STEP 2: GET USERS MANUALLY (SAFE)
+    const userIds = [...new Set(products.map(p => p.user_id))];
+
+    const { data: users } = await supabase
+      .from('User')
+      .select('id, fullName, location')
+      .in('id', userIds);
+
+    // STEP 3: MERGE DATA
+    const productsWithUser = products.map(product => ({
+      ...product,
+      User: users?.find(u => u.id === product.user_id) || null
+    }));
+
+    res.json({ products: productsWithUser });
 
   } catch (err) {
+    console.error("SERVER ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
-
 /* ======================== FAVORITES ======================== */
 
 app.post('/products/favorite', authenticateToken, async (req, res) => {
