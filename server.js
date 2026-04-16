@@ -49,29 +49,20 @@ async function authenticateToken(req, res, next) {
   try {
     const token = req.headers.authorization?.split(' ')[1];
 
-    if (!token) {
-      console.log("❌ No token provided");
-      return res.status(401).json({ message: 'No token' });
-    }
+    if (!token) return res.status(401).json({ message: 'No token' });
 
-    const { data: user, error } = await supabase
+    const { data: user } = await supabase
       .from('User')
       .select('*')
       .eq('id', token)
       .single();
 
-    if (error || !user) {
-      console.log("❌ Invalid token:", token);
-      return res.status(401).json({ message: 'Invalid token' });
-    }
-
-    console.log("✅ Authenticated user:", user.id);
+    if (!user) return res.status(401).json({ message: 'Invalid token' });
 
     req.user = user;
     next();
 
   } catch (err) {
-    console.error("AUTH ERROR:", err);
     res.status(500).json({ error: 'Auth failed' });
   }
 }
@@ -81,20 +72,17 @@ async function authenticateToken(req, res, next) {
 // CREATE PRODUCT
 app.post('/products', authenticateToken, upload.single('image'), async (req, res) => {
   try {
-    console.log("📦 BODY:", req.body);
-    console.log("👤 USER:", req.user);
-
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({ error: 'User not authenticated properly' });
-    }
-
     const { title, description, price, location } = req.body;
+
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
     const newProduct = {
       id: Date.now().toString(),
       title,
       description,
-      price: parseInt(price),
+      price: Number(price), // ✅ FIX
       currency: 'XAF',
       images: req.file ? `/uploads/${req.file.filename}` : null,
       user_id: req.user.id,
@@ -103,6 +91,8 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+
+    console.log("📦 INSERT:", newProduct);
 
     const { data, error } = await supabase
       .from('Product')
@@ -122,22 +112,17 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
   }
 });
 
-// GET PRODUCTS (SAFE VERSION)
+// GET PRODUCTS
 app.get('/products', async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('Product')
-      .select('*')
-      .eq('published', true)
-      .order('createdAt', { ascending: false });
+  const { data, error } = await supabase
+    .from('Product')
+    .select('*')
+    .eq('published', true)
+    .order('createdAt', { ascending: false });
 
-    if (error) return res.status(500).json({ error: error.message });
+  if (error) return res.status(500).json({ error: error.message });
 
-    res.json({ products: data });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ products: data });
 });
 
 // MY PRODUCTS
@@ -177,6 +162,10 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
     .select('productId')
     .eq('userId', req.user.id);
 
+  if (!favorites || favorites.length === 0) {
+    return res.json({ favorites: [] });
+  }
+
   const ids = favorites.map(f => f.productId);
 
   const { data: products } = await supabase
@@ -201,17 +190,14 @@ app.post('/messages', authenticateToken, async (req, res) => {
     const { error } = await supabase
       .from('Message')
       .insert([{
-        id: Date.now().toString(),
+        conversationId: Date.now().toString(), // ✅ FIX
         senderId: req.user.id,
         content: text,
         read: false,
         createdAt: new Date().toISOString()
       }]);
 
-    if (error) {
-      console.error("❌ MESSAGE ERROR:", error);
-      return res.status(500).json({ error: error.message });
-    }
+    if (error) return res.status(500).json({ error: error.message });
 
     res.json({ success: true });
 
@@ -268,37 +254,32 @@ app.post('/auth/login', async (req, res) => {
 
   res.json({ user, token: user.id });
 });
+
 /* ======================== PAYMENT ======================== */
 
 app.post('/pay', authenticateToken, async (req, res) => {
   try {
     const { productId, phone, method } = req.body;
 
-    console.log("💰 Payment request:", req.body);
+    console.log("💰 PAYMENT BODY:", req.body);
 
     if (!productId || !phone || !method) {
       return res.status(400).json({ error: 'Missing payment data' });
     }
 
-    // ✅ FAKE PAYMENT SUCCESS (for now)
-    // Later you can integrate real Orange / MTN API
-
-    // Update product as paid (optional)
     await supabase
       .from('Product')
       .update({ published: true })
       .eq('id', productId);
 
-    res.json({
-      success: true,
-      message: "Payment successful"
-    });
+    res.json({ success: true });
 
   } catch (err) {
     console.error("❌ PAYMENT ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
 /* ======================== START ======================== */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
