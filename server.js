@@ -212,6 +212,27 @@ app.put('/products/publish/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// GET CURRENT USER PRODUCTS (MY LISTINGS)
+app.get('/products/my-listings', authenticateToken, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('Product')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('createdAt', { ascending: false });
+
+    if (error) {
+      console.error("MY LISTINGS ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ products: data });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== MESSAGES ======================== */
 
 app.post('/messages', authenticateToken, async (req, res) => {
