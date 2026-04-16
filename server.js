@@ -153,7 +153,8 @@ app.post('/auth/register', upload.single('image'), async (req, res) => {
     let profileImage = null;
 
     if (req.file) {
-      const fileName = `profile-${Date.now()}`;
+     const fileExt = req.file.originalname.split('.').pop();
+const fileName = `profile-${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('avatars') // ✅ FIXED BUCKET
