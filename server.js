@@ -657,3 +657,55 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on ${PORT}`);
 });
+/* ======================== ADMIN ======================== */
+
+// GET ALL USERS
+app.get('/admin/users', authenticateToken, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('User')
+      .select('id, fullName, email, phone, location, profileImage');
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      users: data
+    });
+
+  } catch (err) {
+    console.error("ADMIN USERS ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// GET ADMIN STATS
+app.get('/admin/stats', authenticateToken, async (req, res) => {
+  try {
+    const { count: users } = await supabase
+      .from('User')
+      .select('*', { count: 'exact', head: true });
+
+    const { count: products } = await supabase
+      .from('Product')
+      .select('*', { count: 'exact', head: true });
+
+    const { count: messages } = await supabase
+      .from('Message')
+      .select('*', { count: 'exact', head: true });
+
+    res.json({
+      success: true,
+      stats: {
+        users: users || 0,
+        products: products || 0,
+        messages: messages || 0
+      }
+    });
+
+  } catch (err) {
+    console.error("ADMIN STATS ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
