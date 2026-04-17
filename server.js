@@ -350,24 +350,32 @@ app.post('/messages', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    // ✅ STRICT CONVERSATION SEARCH (FIXED)
-    const { data: existingConv, error: findError } = await supabase
+    let conversation = null;
+
+    // ✅ CHECK 1 (sender -> receiver)
+    const { data: conv1 } = await supabase
       .from('Conversation')
       .select('*')
-      .eq('productId', productId) // ✅ VERY IMPORTANT
-      .or(
-        `and(buyerId.eq.${senderId},sellerId.eq.${receiverId}),
-         and(buyerId.eq.${receiverId},sellerId.eq.${senderId})`
-      )
-      .limit(1)
+      .eq('productId', productId)
+      .eq('buyerId', senderId)
+      .eq('sellerId', receiverId)
       .maybeSingle();
 
-    if (findError) throw findError;
+    // ✅ CHECK 2 (receiver -> sender)
+    const { data: conv2 } = await supabase
+      .from('Conversation')
+      .select('*')
+      .eq('productId', productId)
+      .eq('buyerId', receiverId)
+      .eq('sellerId', senderId)
+      .maybeSingle();
+
+    conversation = conv1 || conv2;
 
     let conversationId;
 
-    // ✅ CREATE ONLY IF NOT EXISTS
-    if (!existingConv) {
+    // ✅ CREATE IF NOT EXISTS
+    if (!conversation) {
       const { data: newConv, error: createError } = await supabase
         .from('Conversation')
         .insert({
@@ -384,10 +392,10 @@ app.post('/messages', authenticateToken, async (req, res) => {
       if (createError) throw createError;
 
       conversationId = newConv.id;
-    } else {
-      conversationId = existingConv.id;
 
-      // ✅ UPDATE TIMESTAMP (GOOD PRACTICE)
+    } else {
+      conversationId = conversation.id;
+
       await supabase
         .from('Conversation')
         .update({ updatedAt: new Date().toISOString() })
