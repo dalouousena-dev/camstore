@@ -55,11 +55,20 @@ async function authenticateToken(req, res, next) {
 /* ======================== PRODUCTS ======================== */
 
 // CREATE PRODUCT
+// CREATE PRODUCT (FIXED ONLY THIS PART)
 app.post('/products', authenticateToken, upload.single('image'), async (req, res) => {
   try {
     const { title, description, price, location } = req.body;
+
     if (!title || !price) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // ✅ SAFE USER EXTRACTION
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "User not authenticated" });
     }
 
     let imageUrl = null;
@@ -91,7 +100,7 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
       price: Number(price),
       currency: 'XAF',
       images: imageUrl,
-      user_id: req.user.id,
+      user_id: userId, // ✅ FIXED (SAFE)
       location: location || null,
       published: true,
       createdAt: new Date().toISOString(),
@@ -103,11 +112,15 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
       .insert([newProduct])
       .select();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error("PRODUCT ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
 
     res.json({ product: data[0] });
 
   } catch (err) {
+    console.error("SERVER ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
