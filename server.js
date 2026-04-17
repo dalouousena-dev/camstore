@@ -346,47 +346,62 @@ app.post('/messages', authenticateToken, async (req, res) => {
     const senderId = req.user.id;
     const { receiverId, productId, text } = req.body;
 
-    if (!receiverId || !productId) {
+    if (!receiverId || !text) {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    let { data: conversation } = await supabase
+    // ✅ SAFE FIND (NO CRASH)
+    const { data: existingConv } = await supabase
       .from('Conversation')
       .select('*')
-      .eq('productId', productId)
-      .eq('buyerId', senderId)
-      .eq('sellerId', receiverId)
-      .single();
+      .or(
+        `and(buyerId.eq.${senderId},sellerId.eq.${receiverId}),and(buyerId.eq.${receiverId},sellerId.eq.${senderId})`
+      )
+      .maybeSingle(); // ✅ IMPORTANT
 
-    if (!conversation) {
-     const { data: newConv, error } = await supabase
-  .from('Conversation')
-  .insert({
-    id: Date.now().toString(), // ✅ ADD THIS LINE
-    productId,
-    buyerId: senderId,
-    sellerId: receiverId
-  })
-  .select()
-  .single();
+    let conversationId;
+
+    // ✅ CREATE CONVERSATION IF NOT EXISTS
+    if (!existingConv) {
+      const { data: newConv, error } = await supabase
+        .from('Conversation')
+        .insert({
+          id: Date.now().toString(), // ✅ FIX (YOU MISSED THIS BEFORE)
+          productId: productId || null, // ✅ allow null
+          buyerId: senderId,
+          sellerId: receiverId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+        .select()
+        .single();
 
       if (error) throw error;
-      conversation = newConv;
+
+      conversationId = newConv.id;
+
+    } else {
+      conversationId = existingConv.id;
     }
 
-   const { error: msgError } = await supabase
-  .from('Message')
-  .insert({
-    id: Date.now().toString(), // ✅ ADD THIS LINE
-    conversationId: conversation.id,
-    senderId,
-    content: text,
-    read: false
-  });
+    // ✅ INSERT MESSAGE
+    const { error: msgError } = await supabase
+      .from('Message')
+      .insert({
+        id: Date.now().toString(),
+        conversationId,
+        senderId,
+        content: text,
+        read: false,
+        createdAt: new Date().toISOString()
+      });
 
     if (msgError) throw msgError;
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      conversationId
+    });
 
   } catch (err) {
     console.error("MESSAGE ERROR:", err);
