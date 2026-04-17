@@ -452,8 +452,28 @@ app.get('/messages', authenticateToken, async (req, res) => {
       const seller = users.find(u => String(u.id) === String(conv.sellerId));
       const product = products.find(p => String(p.id) === String(conv.productId));
 
-      return {
-        ...conv,
+     const { data: lastMessage } = await supabase
+  .from('Message')
+  .select('content')
+  .eq('conversationId', conv.id)
+  .order('createdAt', { ascending: false })
+  .limit(1)
+  .maybeSingle();
+
+return {
+  ...conv,
+
+  lastMessage: lastMessage?.content || null,
+
+  sellerName: seller?.fullName || null,
+  sellerAvatar: seller?.profileImage || null,
+
+  buyerName: buyer?.fullName || null,
+  buyerAvatar: buyer?.profileImage || null,
+
+  productName: product?.title || null,
+  productImage: product?.images || null
+};
 
         // ✅ SELLER INFO
         sellerName: seller?.fullName || null,
