@@ -64,7 +64,6 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // ✅ SAFE USER EXTRACTION
     const userId = req.user?.id;
 
     if (!userId) {
@@ -74,7 +73,13 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
     let imageUrl = null;
 
     if (req.file) {
-      const fileName = `${Date.now()}-${req.file.originalname}`;
+      // ✅ FIX: sanitize filename (REMOVE SPECIAL CHARACTERS)
+      const cleanName = req.file.originalname
+        .normalize("NFD") // remove accents (é → e)
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9.]/g, "_"); // remove symbols
+
+      const fileName = `${Date.now()}-${cleanName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('products')
@@ -100,7 +105,7 @@ app.post('/products', authenticateToken, upload.single('image'), async (req, res
       price: Number(price),
       currency: 'XAF',
       images: imageUrl,
-      user_id: userId, // ✅ FIXED (SAFE)
+      user_id: userId,
       location: location || null,
       published: true,
       createdAt: new Date().toISOString(),
