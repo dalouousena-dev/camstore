@@ -207,7 +207,21 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
       .select('*')
       .in('id', productIds);
 
-    res.json({ products });
+    // ✅ ADD THIS PART (LIKE /products)
+    const userIds = [...new Set(products.map(p => p.user_id))];
+
+    const { data: users } = await supabase
+      .from('User')
+      .select('id, fullName, profileImage, location')
+      .in('id', userIds);
+
+    const final = products.map(p => ({
+      ...p,
+      User: users?.find(u => String(u.id) === String(p.user_id)) || null
+    }));
+
+    // ✅ RETURN SAME FORMAT AS /products
+    res.json({ products: final });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
