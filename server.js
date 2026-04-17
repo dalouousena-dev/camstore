@@ -393,6 +393,46 @@ app.post('/messages', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.get('/messages', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { data, error } = await supabase
+      .from('Conversation')
+      .select('*')
+      .or(`buyerId.eq.${userId},sellerId.eq.${userId}`)
+      .order('createdAt', { ascending: false });
+
+    if (error) throw error;
+
+    res.json({ conversations: data });
+
+  } catch (err) {
+    console.error("GET MESSAGES ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/messages/:conversationId', authenticateToken, async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    const { data, error } = await supabase
+      .from('Message')
+      .select('*')
+      .eq('conversationId', conversationId)
+      .order('createdAt', { ascending: true });
+
+    if (error) throw error;
+
+    res.json({ messages: data });
+
+  } catch (err) {
+    console.error("GET CHAT ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== PAYMENT ======================== */
 
 app.post('/pay', authenticateToken, async (req, res) => {
