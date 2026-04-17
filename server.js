@@ -330,64 +330,55 @@ app.delete('/products/favorite/:productId', authenticateToken, async (req, res) 
 
 app.post('/messages', async (req, res) => {
   try {
-    const { receiverId, text, productId } = req.body;
+    const { receiverId, productId, text } = req.body;
     const senderId = req.user.id;
 
-    if (!receiverId || !text || !productId) {
+    if (!receiverId || !productId) {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    // determine buyer/seller
-    const buyerId = senderId;
-    const sellerId = receiverId;
-
-    // 1️⃣ check if conversation exists
-    let { data: conversation } = await supabase
+    // 1️⃣ Check if conversation exists
+    let { data: conversation, error: convError } = await supabase
       .from('Conversation')
       .select('*')
       .eq('productId', productId)
-      .eq('buyerId', buyerId)
-      .eq('sellerId', sellerId)
+      .eq('buyerId', senderId)
+      .eq('sellerId', receiverId)
       .single();
 
-    // 2️⃣ create if not exists
+    // 2️⃣ If not → create it
     if (!conversation) {
-      const { data: newConv, error: convError } = await supabase
+      const { data: newConv, error: createError } = await supabase
         .from('Conversation')
-        .insert([
-          {
-            productId,
-            buyerId,
-            sellerId
-          }
-        ])
+        .insert({
+          productId,
+          buyerId: senderId,
+          sellerId: receiverId
+        })
         .select()
         .single();
 
-      if (convError) throw convError;
+      if (createError) throw createError;
 
       conversation = newConv;
     }
 
-    // 3️⃣ insert message
-    const { data: message, error } = await supabase
+    // 3️⃣ Insert message
+    const { error: msgError } = await supabase
       .from('Message')
-      .insert([
-        {
-          conversationId: conversation.id,
-          senderId,
-          content: text
-        }
-      ])
-      .select()
-      .single();
+      .insert({
+        conversationId: conversation.id,
+        senderId,
+        content: text,
+        read: false
+      });
 
-    if (error) throw error;
+    if (msgError) throw msgError;
 
-    res.json({ success: true, message });
+    res.json({ success: true });
 
   } catch (err) {
-    console.error(err);
+    console.error("MESSAGE ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
