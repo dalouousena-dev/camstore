@@ -350,24 +350,29 @@ app.post('/messages', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    // ✅ SAFE FIND (NO CRASH)
-    const { data: existingConv } = await supabase
+    // ✅ STRICT CONVERSATION SEARCH (FIXED)
+    const { data: existingConv, error: findError } = await supabase
       .from('Conversation')
       .select('*')
+      .eq('productId', productId) // ✅ VERY IMPORTANT
       .or(
-        `and(buyerId.eq.${senderId},sellerId.eq.${receiverId}),and(buyerId.eq.${receiverId},sellerId.eq.${senderId})`
+        `and(buyerId.eq.${senderId},sellerId.eq.${receiverId}),
+         and(buyerId.eq.${receiverId},sellerId.eq.${senderId})`
       )
-      .maybeSingle(); // ✅ IMPORTANT
+      .limit(1)
+      .maybeSingle();
+
+    if (findError) throw findError;
 
     let conversationId;
 
-    // ✅ CREATE CONVERSATION IF NOT EXISTS
+    // ✅ CREATE ONLY IF NOT EXISTS
     if (!existingConv) {
-      const { data: newConv, error } = await supabase
+      const { data: newConv, error: createError } = await supabase
         .from('Conversation')
         .insert({
-          id: Date.now().toString(), // ✅ FIX (YOU MISSED THIS BEFORE)
-          productId: productId || null, // ✅ allow null
+          id: Date.now().toString(),
+          productId: productId || null,
           buyerId: senderId,
           sellerId: receiverId,
           createdAt: new Date().toISOString(),
@@ -376,12 +381,17 @@ app.post('/messages', authenticateToken, async (req, res) => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (createError) throw createError;
 
       conversationId = newConv.id;
-
     } else {
       conversationId = existingConv.id;
+
+      // ✅ UPDATE TIMESTAMP (GOOD PRACTICE)
+      await supabase
+        .from('Conversation')
+        .update({ updatedAt: new Date().toISOString() })
+        .eq('id', conversationId);
     }
 
     // ✅ INSERT MESSAGE
@@ -408,7 +418,6 @@ app.post('/messages', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 app.get('/messages', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
