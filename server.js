@@ -330,15 +330,29 @@ app.delete('/products/favorite/:productId', authenticateToken, async (req, res) 
 
 app.post('/messages', async (req, res) => {
   try {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+
+    // ✅ GET USER FROM TOKEN
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+
+    if (userError || !userData?.user) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
+    const senderId = userData.user.id;
+
     const { receiverId, productId, text } = req.body;
-    const senderId = req.user.id;
 
     if (!receiverId || !productId) {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    // 1️⃣ Check if conversation exists
-    let { data: conversation, error: convError } = await supabase
+    // 🔍 FIND CONVERSATION
+    let { data: conversation } = await supabase
       .from('Conversation')
       .select('*')
       .eq('productId', productId)
@@ -346,9 +360,9 @@ app.post('/messages', async (req, res) => {
       .eq('sellerId', receiverId)
       .single();
 
-    // 2️⃣ If not → create it
+    // ➕ CREATE IF NOT EXISTS
     if (!conversation) {
-      const { data: newConv, error: createError } = await supabase
+      const { data: newConv, error } = await supabase
         .from('Conversation')
         .insert({
           productId,
@@ -358,12 +372,12 @@ app.post('/messages', async (req, res) => {
         .select()
         .single();
 
-      if (createError) throw createError;
+      if (error) throw error;
 
       conversation = newConv;
     }
 
-    // 3️⃣ Insert message
+    // 💬 INSERT MESSAGE
     const { error: msgError } = await supabase
       .from('Message')
       .insert({
