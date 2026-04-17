@@ -359,28 +359,30 @@ app.post('/messages', authenticateToken, async (req, res) => {
       .single();
 
     if (!conversation) {
-      const { data: newConv, error } = await supabase
-        .from('Conversation')
-        .insert({
-          productId,
-          buyerId: senderId,
-          sellerId: receiverId
-        })
-        .select()
-        .single();
+     const { data: newConv, error } = await supabase
+  .from('Conversation')
+  .insert({
+    id: Date.now().toString(), // ✅ ADD THIS LINE
+    productId,
+    buyerId: senderId,
+    sellerId: receiverId
+  })
+  .select()
+  .single();
 
       if (error) throw error;
       conversation = newConv;
     }
 
-    const { error: msgError } = await supabase
-      .from('Message')
-      .insert({
-        conversationId: conversation.id,
-        senderId,
-        content: text,
-        read: false
-      });
+   const { error: msgError } = await supabase
+  .from('Message')
+  .insert({
+    id: Date.now().toString(), // ✅ ADD THIS LINE
+    conversationId: conversation.id,
+    senderId,
+    content: text,
+    read: false
+  });
 
     if (msgError) throw msgError;
 
