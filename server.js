@@ -313,6 +313,43 @@ app.delete('/products/favorite/:productId', authenticateToken, async (req, res) 
     res.status(500).json({ error: err.message });
   }
 });
+
+app.post('/messages', authenticateToken, async (req, res) => {
+  try {
+    const senderId = req.user.id;
+    const { receiverId, text } = req.body;
+
+    if (!receiverId || !text) {
+      return res.status(400).json({ error: 'Missing data' });
+    }
+
+    // ✅ create a simple conversation id
+    const conversationId = [senderId, receiverId].sort().join('_');
+
+    const newMessage = {
+      id: Date.now().toString(),
+      conversationId,          // ✅ REQUIRED by your table
+      senderId,
+      content: text,           // ✅ FIXED (was "text")
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('Message')
+      .insert([newMessage])
+      .select();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true, message: data[0] });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== PAYMENT ======================== */
 
 app.post('/pay', authenticateToken, async (req, res) => {
