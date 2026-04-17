@@ -193,46 +193,60 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
+    // 1️⃣ Get favorites
     const { data: favorites, error } = await supabase
       .from('Favorite')
       .select('*')
       .eq('userId', userId);
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
 
     const productIds = favorites.map(f => f.productId).filter(Boolean);
 
-    // ✅ FIX: handle empty
+    // 2️⃣ If no favorites
     if (!productIds.length) {
       return res.json({ products: [] });
     }
 
-    const { data: products } = await supabase
+    // 3️⃣ Get products
+    const { data: products, error: productError } = await supabase
       .from('Product')
       .select('*')
       .in('id', productIds);
 
+    if (productError) {
+      return res.status(500).json({ error: productError.message });
+    }
+
+    // 4️⃣ Get users (sellers)
     const userIds = [...new Set(products.map(p => p.user_id))];
 
-    const { data: users } = await supabase
+    const { data: users, error: userError } = await supabase
       .from('User')
       .select('id, fullName, profileImage, location')
       .in('id', userIds);
 
+    if (userError) {
+      return res.status(500).json({ error: userError.message });
+    }
+
+    // 5️⃣ Merge product + user (🔥 MAIN FIX HERE)
     const final = products.map(p => {
-      const user = users?.find(u => String(u.id) === String(p.user_id));
+      const user = users.find(u => String(u.id) === String(p.user_id));
 
       return {
         ...p,
-        User: user || null,
-        sellerName: user?.fullName || null,
-        sellerImage: user?.profileImage || null
+        user: user || null // ✅ VERY IMPORTANT FIX
       };
     });
 
+    // 6️⃣ Send response
     res.json({ products: final });
 
   } catch (err) {
+    console.error("FAVORITES ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
