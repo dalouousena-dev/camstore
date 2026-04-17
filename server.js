@@ -328,39 +328,66 @@ app.delete('/products/favorite/:productId', authenticateToken, async (req, res) 
   }
 });
 
-app.post('/messages', authenticateToken, async (req, res) => {
+app.post('/messages', async (req, res) => {
   try {
+    const { receiverId, text, productId } = req.body;
     const senderId = req.user.id;
-    const { receiverId, text } = req.body;
 
-    if (!receiverId || !text) {
-      return res.status(400).json({ error: 'Missing data' });
+    if (!receiverId || !text || !productId) {
+      return res.status(400).json({ error: "Missing data" });
     }
 
-    // ✅ create a simple conversation id
-    const conversationId = [senderId, receiverId].sort().join('_');
+    // determine buyer/seller
+    const buyerId = senderId;
+    const sellerId = receiverId;
 
-    const newMessage = {
-      id: Date.now().toString(),
-      conversationId,          // ✅ REQUIRED by your table
-      senderId,
-      content: text,           // ✅ FIXED (was "text")
-      read: false,
-      createdAt: new Date().toISOString()
-    };
+    // 1️⃣ check if conversation exists
+    let { data: conversation } = await supabase
+      .from('Conversation')
+      .select('*')
+      .eq('productId', productId)
+      .eq('buyerId', buyerId)
+      .eq('sellerId', sellerId)
+      .single();
 
-    const { data, error } = await supabase
+    // 2️⃣ create if not exists
+    if (!conversation) {
+      const { data: newConv, error: convError } = await supabase
+        .from('Conversation')
+        .insert([
+          {
+            productId,
+            buyerId,
+            sellerId
+          }
+        ])
+        .select()
+        .single();
+
+      if (convError) throw convError;
+
+      conversation = newConv;
+    }
+
+    // 3️⃣ insert message
+    const { data: message, error } = await supabase
       .from('Message')
-      .insert([newMessage])
-      .select();
+      .insert([
+        {
+          conversationId: conversation.id,
+          senderId,
+          content: text
+        }
+      ])
+      .select()
+      .single();
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    if (error) throw error;
 
-    res.json({ success: true, message: data[0] });
+    res.json({ success: true, message });
 
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
