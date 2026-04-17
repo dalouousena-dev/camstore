@@ -214,7 +214,29 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
   }
 });
 /* ======================== AUTH ======================== */
+// ✅ GET MY PRODUCTS (FIXED)
+app.get('/products/my-listings', async (req, res) => {
+  try {
+    const userId = req.headers['user-id']; // or from token if you use auth
 
+    if (!userId) {
+      return res.status(400).json({ error: "User ID required" });
+    }
+
+    const { data, error } = await supabase
+      .from('Product')
+      .select('*')
+      .eq('sellerId', userId);
+
+    if (error) throw error;
+
+    res.json({ success: true, products: data });
+
+  } catch (err) {
+    console.error("MY LISTINGS ERROR:", err);
+    res.status(500).json({ error: "Failed to fetch listings" });
+  }
+});
 /* ======================== PAYMENT ======================== */
 
 app.post('/pay', authenticateToken, async (req, res) => {
