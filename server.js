@@ -413,7 +413,8 @@ app.get('/messages', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const { data, error } = await supabase
+    // ✅ GET CONVERSATIONS
+    const { data: conversations, error } = await supabase
       .from('Conversation')
       .select('*')
       .or(`buyerId.eq.${userId},sellerId.eq.${userId}`)
@@ -421,7 +422,54 @@ app.get('/messages', authenticateToken, async (req, res) => {
 
     if (error) throw error;
 
-    res.json({ conversations: data });
+    if (!conversations.length) {
+      return res.json({ conversations: [] });
+    }
+
+    // ✅ GET ALL IDS
+    const productIds = conversations.map(c => c.productId).filter(Boolean);
+    const userIds = [
+      ...new Set(
+        conversations.flatMap(c => [c.buyerId, c.sellerId])
+      )
+    ];
+
+    // ✅ FETCH PRODUCTS
+    const { data: products } = await supabase
+      .from('Product')
+      .select('id, title, images')
+      .in('id', productIds);
+
+    // ✅ FETCH USERS
+    const { data: users } = await supabase
+      .from('User')
+      .select('id, fullName, profileImage')
+      .in('id', userIds);
+
+    // ✅ MERGE EVERYTHING
+    const final = conversations.map(conv => {
+      const buyer = users.find(u => String(u.id) === String(conv.buyerId));
+      const seller = users.find(u => String(u.id) === String(conv.sellerId));
+      const product = products.find(p => String(p.id) === String(conv.productId));
+
+      return {
+        ...conv,
+
+        // ✅ SELLER INFO
+        sellerName: seller?.fullName || null,
+        sellerAvatar: seller?.profileImage || null,
+
+        // ✅ BUYER INFO
+        buyerName: buyer?.fullName || null,
+        buyerAvatar: buyer?.profileImage || null,
+
+        // ✅ PRODUCT INFO
+        productName: product?.title || null,
+        productImage: product?.images || null
+      };
+    });
+
+    res.json({ conversations: final });
 
   } catch (err) {
     console.error("GET MESSAGES ERROR:", err);
