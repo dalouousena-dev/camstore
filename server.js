@@ -247,6 +247,40 @@ app.get('/products/my-listings', authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch listings" });
   }
 });
+
+
+app.delete('/products/:id', authenticateToken, async (req, res) => {
+  try {
+    const productId = req.params.id;
+    const userId = req.user.id;
+
+    const { data: product } = await supabase
+      .from('Product')
+      .select('*')
+      .eq('id', productId)
+      .single();
+
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    if (product.user_id !== userId) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    const { error } = await supabase
+      .from('Product')
+      .delete()
+      .eq('id', productId);
+
+    if (error) throw error;
+
+    res.json({ success: true });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== PAYMENT ======================== */
 
 app.post('/pay', authenticateToken, async (req, res) => {
