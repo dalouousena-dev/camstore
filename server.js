@@ -207,7 +207,6 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
       .select('*')
       .in('id', productIds);
 
-    // ✅ ADD THIS PART (LIKE /products)
     const userIds = [...new Set(products.map(p => p.user_id))];
 
     const { data: users } = await supabase
@@ -215,12 +214,17 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
       .select('id, fullName, profileImage, location')
       .in('id', userIds);
 
-    const final = products.map(p => ({
-      ...p,
-      User: users?.find(u => String(u.id) === String(p.user_id)) || null
-    }));
+    const final = products.map(p => {
+      const user = users?.find(u => String(u.id) === String(p.user_id));
 
-    // ✅ RETURN SAME FORMAT AS /products
+      return {
+        ...p,
+        User: user || null,
+        sellerName: user?.fullName || null,
+        sellerImage: user?.profileImage || null
+      };
+    });
+
     res.json({ products: final });
 
   } catch (err) {
