@@ -557,6 +557,16 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
+app.get('/auth/verify', authenticateToken, async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      user: req.user
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== ROOT ======================== */
 
 app.get('/', (req, res) => {
