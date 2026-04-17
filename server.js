@@ -281,6 +281,29 @@ app.delete('/products/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// REMOVE FROM FAVORITES
+app.delete('/products/favorite/:productId', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const productId = req.params.productId;
+
+    const { error } = await supabase
+      .from('Favorite')
+      .delete()
+      .eq('userId', userId)
+      .eq('productId', productId);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== PAYMENT ======================== */
 
 app.post('/pay', authenticateToken, async (req, res) => {
