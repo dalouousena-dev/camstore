@@ -413,7 +413,7 @@ app.get('/messages', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // ✅ GET CONVERSATIONS
+    // 1️⃣ GET CONVERSATIONS
     const { data: conversations, error } = await supabase
       .from('Conversation')
       .select('*')
@@ -426,7 +426,7 @@ app.get('/messages', authenticateToken, async (req, res) => {
       return res.json({ conversations: [] });
     }
 
-    // ✅ GET ALL IDS
+    // 2️⃣ GET RELATED IDS
     const productIds = conversations.map(c => c.productId).filter(Boolean);
     const userIds = [
       ...new Set(
@@ -434,60 +434,51 @@ app.get('/messages', authenticateToken, async (req, res) => {
       )
     ];
 
-    // ✅ FETCH PRODUCTS
+    // 3️⃣ FETCH PRODUCTS
     const { data: products } = await supabase
       .from('Product')
       .select('id, title, images')
       .in('id', productIds);
 
-    // ✅ FETCH USERS
+    // 4️⃣ FETCH USERS
     const { data: users } = await supabase
       .from('User')
       .select('id, fullName, profileImage')
       .in('id', userIds);
 
-    // ✅ MERGE EVERYTHING
-    const final = conversations.map(conv => {
-      const buyer = users.find(u => String(u.id) === String(conv.buyerId));
-      const seller = users.find(u => String(u.id) === String(conv.sellerId));
-      const product = products.find(p => String(p.id) === String(conv.productId));
+    // 5️⃣ MERGE + LAST MESSAGE (FIXED WITH Promise.all)
+    const final = await Promise.all(
+      conversations.map(async (conv) => {
 
-     const { data: lastMessage } = await supabase
-  .from('Message')
-  .select('content')
-  .eq('conversationId', conv.id)
-  .order('createdAt', { ascending: false })
-  .limit(1)
-  .maybeSingle();
+        const buyer = users.find(u => String(u.id) === String(conv.buyerId));
+        const seller = users.find(u => String(u.id) === String(conv.sellerId));
+        const product = products.find(p => String(p.id) === String(conv.productId));
 
-return {
-  ...conv,
+        // ✅ LAST MESSAGE (SAFE)
+        const { data: lastMessage } = await supabase
+          .from('Message')
+          .select('content')
+          .eq('conversationId', conv.id)
+          .order('createdAt', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-  lastMessage: lastMessage?.content || null,
+        return {
+          ...conv,
 
-  sellerName: seller?.fullName || null,
-  sellerAvatar: seller?.profileImage || null,
+          lastMessage: lastMessage?.content || null,
 
-  buyerName: buyer?.fullName || null,
-  buyerAvatar: buyer?.profileImage || null,
+          sellerName: seller?.fullName || null,
+          sellerAvatar: seller?.profileImage || null,
 
-  productName: product?.title || null,
-  productImage: product?.images || null
-};
+          buyerName: buyer?.fullName || null,
+          buyerAvatar: buyer?.profileImage || null,
 
-        // ✅ SELLER INFO
-        sellerName: seller?.fullName || null,
-        sellerAvatar: seller?.profileImage || null,
-
-        // ✅ BUYER INFO
-        buyerName: buyer?.fullName || null,
-        buyerAvatar: buyer?.profileImage || null,
-
-        // ✅ PRODUCT INFO
-        productName: product?.title || null,
-        productImage: product?.images || null
-      };
-    });
+          productName: product?.title || null,
+          productImage: product?.images || null
+        };
+      })
+    );
 
     res.json({ conversations: final });
 
