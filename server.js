@@ -680,32 +680,3 @@ app.get('/admin/users', authenticateToken, async (req, res) => {
 });
 
 
-// GET ADMIN STATS
-app.get('/admin/stats', authenticateToken, async (req, res) => {
-  try {
-    const { count: users } = await supabase
-      .from('User')
-      .select('*', { count: 'exact', head: true });
-
-    const { count: products } = await supabase
-      .from('Product')
-      .select('*', { count: 'exact', head: true });
-
-    const { count: messages } = await supabase
-      .from('Message')
-      .select('*', { count: 'exact', head: true });
-
-    res.json({
-      success: true,
-      stats: {
-        users: users || 0,
-        products: products || 0,
-        messages: messages || 0
-      }
-    });
-
-  } catch (err) {
-    console.error("ADMIN STATS ERROR:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
