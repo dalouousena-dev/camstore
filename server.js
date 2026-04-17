@@ -200,7 +200,12 @@ app.get('/products/favorites', authenticateToken, async (req, res) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    const productIds = favorites.map(f => f.productId);
+    const productIds = favorites.map(f => f.productId).filter(Boolean);
+
+    // ✅ FIX: handle empty
+    if (!productIds.length) {
+      return res.json({ products: [] });
+    }
 
     const { data: products } = await supabase
       .from('Product')
