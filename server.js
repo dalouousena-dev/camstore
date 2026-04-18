@@ -669,7 +669,7 @@ app.listen(PORT, () => {
 /* ======================== ADMIN ======================== */
 
 // GET ALL USERS
-app.get('/admin/users', authenticateToken, isAdmin, ...)
+app.get('/admin/users', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('User')
