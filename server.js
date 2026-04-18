@@ -30,6 +30,7 @@ app.use(express.urlencoded({ extended: true }));
 const upload = multer({ storage: multer.memoryStorage() });
 
 /* ======================== AUTH ======================== */
+/* ======================== AUTH ======================== */
 async function authenticateToken(req, res, next) {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -50,6 +51,14 @@ async function authenticateToken(req, res, next) {
   } catch {
     res.status(500).json({ error: 'Auth failed' });
   }
+}
+
+/* ✅ ADD THIS EXACTLY HERE (RIGHT AFTER authenticateToken) */
+function isAdmin(req, res, next) {
+  if (req.user.email !== process.env.ADMIN_EMAIL) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  next();
 }
 
 /* ======================== PRODUCTS ======================== */
@@ -660,7 +669,7 @@ app.listen(PORT, () => {
 /* ======================== ADMIN ======================== */
 
 // GET ALL USERS
-app.get('/admin/users', authenticateToken, async (req, res) => {
+app.get('/admin/users', authenticateToken, isAdmin, ...)
   try {
     const { data, error } = await supabase
       .from('User')
@@ -678,5 +687,64 @@ app.get('/admin/users', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+app.get('/admin/products', authenticateToken, async (req, res) => {
+  try {
+    const { data: products, error } = await supabase
+      .from('Product')
+      .select('*');
 
+    if (error) throw error;
+
+    // Get users (owners)
+    const userIds = [...new Set(products.map(p => p.user_id))];
+
+    const { data: users } = await supabase
+      .from('User')
+      .select('id, fullName, email')
+      .in('id', userIds);
+
+    const final = products.map(p => ({
+      ...p,
+      owner: users.find(u => String(u.id) === String(p.user_id)) || null
+    }));
+
+    res.json({
+      success: true,
+      products: final
+    });
+
+  } catch (err) {
+    console.error("ADMIN PRODUCTS ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.get('/admin/stats', authenticateToken, async (req, res) => {
+  try {
+
+    // USERS COUNT
+    const { count: totalUsers } = await supabase
+      .from('User')
+      .select('*', { count: 'exact', head: true });
+
+    // PRODUCTS COUNT
+    const { count: totalProducts } = await supabase
+      .from('Product')
+      .select('*', { count: 'exact', head: true });
+
+    // MESSAGES COUNT
+    const { count: totalConversations } = await supabase
+      .from('Conversation')
+      .select('*', { count: 'exact', head: true });
+
+    res.json({
+      totalUsers: totalUsers || 0,
+      totalProducts: totalProducts || 0,
+      totalConversations: totalConversations || 0
+    });
+
+  } catch (err) {
+    console.error("ADMIN STATS ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
