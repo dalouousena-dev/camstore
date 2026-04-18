@@ -574,16 +574,64 @@ app.post('/pay', authenticateToken, async (req, res) => {
 // REGISTER (FIXED HERE)
 app.post('/auth/register', upload.single('image'), async (req, res) => {
   try {
-    // ✅ FIX: add phone + location
     const { email, password, fullName, phone, location } = req.body;
 
-    const hashed = await bcrypt.hash(password, 10);
+    // ========================
+    // 1. VALIDATION
+    // ========================
+    if (!email || !password || !fullName) {
+      return res.status(400).json({
+        message: 'Email, password and full name are required'
+      });
+    }
 
+    // Simple email format check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        message: 'Invalid email format'
+      });
+    }
+
+    // Password length check
+    if (password.length < 6) {
+      return res.status(400).json({
+        message: 'Password must be at least 6 characters'
+      });
+    }
+
+    // ========================
+    // 2. CHECK IF EMAIL EXISTS
+    // ========================
+    const { data: existingUser } = await supabase
+      .from('User')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existingUser) {
+      return res.status(400).json({
+        message: 'Email already exists'
+      });
+    }
+
+    // ========================
+    // 3. HASH PASSWORD
+    // ========================
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // ========================
+    // 4. HANDLE IMAGE UPLOAD
+    // ========================
     let profileImage = null;
 
     if (req.file) {
-      const fileExt = req.file.originalname.split('.').pop();
-      const fileName = `profile-${Date.now()}.${fileExt}`;
+      const cleanName = req.file.originalname
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9.]/g, "_");
+
+      const fileName = `profile-${Date.now()}-${cleanName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
@@ -592,7 +640,10 @@ app.post('/auth/register', upload.single('image'), async (req, res) => {
         });
 
       if (uploadError) {
-        return res.status(500).json({ error: uploadError.message });
+        console.error("UPLOAD ERROR:", uploadError);
+        return res.status(500).json({
+          message: 'Failed to upload image'
+        });
       }
 
       const { data } = supabase.storage
@@ -602,26 +653,57 @@ app.post('/auth/register', upload.single('image'), async (req, res) => {
       profileImage = data.publicUrl;
     }
 
-    // ✅ FIX: insert phone + location
+    // ========================
+    // 5. CREATE USER
+    // ========================
+    const newUser = {
+      id: Date.now().toString(),
+      email,
+      password: hashedPassword,
+      fullName,
+      phone: phone || null,
+      location: location || null,
+      profileImage
+    };
+
     const { data, error } = await supabase
       .from('User')
-      .insert([{
-        id: Date.now().toString(),
-        email,
-        password: hashed,
-        fullName,
-        phone: phone || null,        // ✅ ADDED
-        location: location || null,  // ✅ ADDED
-        profileImage
-      }])
+      .insert([newUser])
       .select();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error("REGISTER ERROR:", error);
 
-    res.json({ user: data[0], token: data[0].id });
+      // Extra safety (race condition)
+      if (
+        error.message.includes('duplicate key') ||
+        error.code === '23505'
+      ) {
+        return res.status(400).json({
+          message: 'Email already exists'
+        });
+      }
+
+      return res.status(500).json({
+        message: 'Server error'
+      });
+    }
+
+    // ========================
+    // 6. SUCCESS RESPONSE
+    // ========================
+    return res.status(201).json({
+      success: true,
+      user: data[0],
+      token: data[0].id
+    });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("REGISTER CATCH ERROR:", err);
+
+    return res.status(500).json({
+      message: 'Unexpected server error'
+    });
   }
 });
 
