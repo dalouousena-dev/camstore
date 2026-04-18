@@ -657,6 +657,63 @@ app.get('/auth/verify', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+ app.put('/auth/profile', authenticateToken, upload.single('image'), async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { fullName, phone, location } = req.body;
+
+    let profileImage = req.user.profileImage;
+
+    // ✅ Handle new image upload
+    if (req.file) {
+      const fileExt = req.file.originalname.split('.').pop();
+      const fileName = `profile-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype
+        });
+
+      if (uploadError) {
+        return res.status(500).json({ error: uploadError.message });
+      }
+
+      const { data } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName);
+
+      profileImage = data.publicUrl;
+    }
+
+    // ✅ Update user in DB
+    const { data, error } = await supabase
+      .from('User')
+      .update({
+        fullName: fullName || req.user.fullName,
+        phone: phone || req.user.phone,
+        location: location || req.user.location,
+        profileImage
+      })
+      .eq('id', userId)
+      .select();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({
+      success: true,
+      user: data[0]
+    });
+
+  } catch (err) {
+    console.error("PROFILE UPDATE ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 /* ======================== ROOT ======================== */
 
 app.get('/', (req, res) => {
