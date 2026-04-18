@@ -712,20 +712,57 @@ app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const { data: user } = await supabase
+    // ========================
+    // 1. VALIDATION
+    // ========================
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password are required'
+      });
+    }
+
+    // ========================
+    // 2. FIND USER
+    // ========================
+    const { data: user, error } = await supabase
       .from('User')
       .select('*')
       .eq('email', email)
-      .single();
+      .maybeSingle();
 
+    // ❌ USER DOES NOT EXIST
+    if (!user) {
+      return res.status(404).json({
+        message: 'Account not registered'
+      });
+    }
+
+    // ========================
+    // 3. CHECK PASSWORD
+    // ========================
     const valid = await bcrypt.compare(password, user.password);
 
-    if (!valid) return res.status(401).json({ message: 'Invalid credentials' });
+    if (!valid) {
+      return res.status(401).json({
+        message: 'Incorrect password'
+      });
+    }
 
-    res.json({ user, token: user.id });
+    // ========================
+    // 4. SUCCESS
+    // ========================
+    return res.json({
+      success: true,
+      user,
+      token: user.id
+    });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("LOGIN ERROR:", err);
+
+    return res.status(500).json({
+      message: 'Server error'
+    });
   }
 });
 
