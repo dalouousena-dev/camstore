@@ -366,7 +366,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
     let conversation = null;
 
-    // ✅ CHECK EXISTING CONVERSATION (BOTH DIRECTIONS)
+    // CHECK EXISTING CONVERSATION (BOTH DIRECTIONS)
     const { data: conv1 } = await supabase
       .from('Conversation')
       .select('*')
@@ -387,7 +387,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
     let conversationId;
 
-    // ✅ CREATE CONVERSATION IF NOT EXISTS
+    // CREATE CONVERSATION IF NOT EXISTS
     if (!conversation) {
       const { data: newConv, error: createError } = await supabase
         .from('Conversation')
@@ -405,22 +405,20 @@ app.post('/messages', authenticateToken, async (req, res) => {
       if (createError) throw createError;
 
       conversationId = newConv.id;
-
     } else {
       conversationId = conversation.id;
     }
 
-    // ✅ CREATE MESSAGE OBJECT
+    // ✅ FIX: USE text (NOT content)
     const newMessage = {
       id: Date.now().toString(),
       conversationId,
       senderId,
-      content: text,
+      text, // 🔥 FIXED HERE
       read: false,
       createdAt: new Date().toISOString()
     };
 
-    // ✅ INSERT MESSAGE
     const { data: insertedMessage, error: msgError } = await supabase
       .from('Message')
       .insert(newMessage)
@@ -429,13 +427,12 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
     if (msgError) throw msgError;
 
-    // ✅ UPDATE CONVERSATION TIMESTAMP (IMPORTANT FOR ORDERING)
+    // UPDATE CONVERSATION TIMESTAMP
     await supabase
       .from('Conversation')
       .update({ updatedAt: new Date().toISOString() })
       .eq('id', conversationId);
 
-    // ✅ RETURN FULL MESSAGE (THIS FIXES YOUR FRONTEND)
     res.json({
       success: true,
       message: insertedMessage,
@@ -452,12 +449,11 @@ app.get('/messages', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // 1️⃣ GET CONVERSATIONS
     const { data: conversations, error } = await supabase
       .from('Conversation')
       .select('*')
       .or(`buyerId.eq.${userId},sellerId.eq.${userId}`)
-     .order('updatedAt', { ascending: false })
+      .order('updatedAt', { ascending: false });
 
     if (error) throw error;
 
@@ -465,27 +461,24 @@ app.get('/messages', authenticateToken, async (req, res) => {
       return res.json({ conversations: [] });
     }
 
-    // 2️⃣ GET RELATED IDS
     const productIds = conversations.map(c => c.productId).filter(Boolean);
+
     const userIds = [
       ...new Set(
         conversations.flatMap(c => [c.buyerId, c.sellerId])
       )
     ];
 
-    // 3️⃣ FETCH PRODUCTS
     const { data: products } = await supabase
       .from('Product')
       .select('id, title, images')
       .in('id', productIds);
 
-    // 4️⃣ FETCH USERS
     const { data: users } = await supabase
       .from('User')
       .select('id, fullName, profileImage')
       .in('id', userIds);
 
-    // 5️⃣ MERGE + LAST MESSAGE (FIXED WITH Promise.all)
     const final = await Promise.all(
       conversations.map(async (conv) => {
 
@@ -493,19 +486,19 @@ app.get('/messages', authenticateToken, async (req, res) => {
         const seller = users.find(u => String(u.id) === String(conv.sellerId));
         const product = products.find(p => String(p.id) === String(conv.productId));
 
-        // ✅ LAST MESSAGE (SAFE)
+        // ✅ FIX: use text + correct ordering
         const { data: lastMessage } = await supabase
           .from('Message')
-          .select('content')
+          .select('text')
           .eq('conversationId', conv.id)
-         .order('updatedAt', { ascending: false })
+          .order('createdAt', { ascending: false }) // 🔥 FIXED
           .limit(1)
           .maybeSingle();
-        
+
         return {
           ...conv,
 
-          lastMessage: lastMessage?.content || null,
+          lastMessage: lastMessage?.text || null,
 
           sellerName: seller?.fullName || null,
           sellerAvatar: seller?.profileImage || null,
