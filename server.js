@@ -501,7 +501,7 @@ app.get('/messages', authenticateToken, async (req, res) => {
          .order('updatedAt', { ascending: false })
           .limit(1)
           .maybeSingle();
-
+        
         return {
           ...conv,
 
