@@ -366,7 +366,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
     let conversation = null;
 
-    // ✅ CHECK 1 (sender -> receiver)
+    // ✅ CHECK EXISTING CONVERSATION (BOTH DIRECTIONS)
     const { data: conv1 } = await supabase
       .from('Conversation')
       .select('*')
@@ -375,7 +375,6 @@ app.post('/messages', authenticateToken, async (req, res) => {
       .eq('sellerId', receiverId)
       .maybeSingle();
 
-    // ✅ CHECK 2 (receiver -> sender)
     const { data: conv2 } = await supabase
       .from('Conversation')
       .select('*')
@@ -388,7 +387,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
     let conversationId;
 
-    // ✅ CREATE IF NOT EXISTS
+    // ✅ CREATE CONVERSATION IF NOT EXISTS
     if (!conversation) {
       const { data: newConv, error: createError } = await supabase
         .from('Conversation')
@@ -409,29 +408,37 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
     } else {
       conversationId = conversation.id;
-
-      await supabase
-        .from('Conversation')
-        .update({ updatedAt: new Date().toISOString() })
-        .eq('id', conversationId);
     }
 
+    // ✅ CREATE MESSAGE OBJECT
+    const newMessage = {
+      id: Date.now().toString(),
+      conversationId,
+      senderId,
+      content: text,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+
     // ✅ INSERT MESSAGE
-    const { error: msgError } = await supabase
+    const { data: insertedMessage, error: msgError } = await supabase
       .from('Message')
-      .insert({
-        id: Date.now().toString(),
-        conversationId,
-        senderId,
-        content: text,
-        read: false,
-        createdAt: new Date().toISOString()
-      });
+      .insert(newMessage)
+      .select()
+      .single();
 
     if (msgError) throw msgError;
 
+    // ✅ UPDATE CONVERSATION TIMESTAMP (IMPORTANT FOR ORDERING)
+    await supabase
+      .from('Conversation')
+      .update({ updatedAt: new Date().toISOString() })
+      .eq('id', conversationId);
+
+    // ✅ RETURN FULL MESSAGE (THIS FIXES YOUR FRONTEND)
     res.json({
       success: true,
+      message: insertedMessage,
       conversationId
     });
 
@@ -440,6 +447,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 app.get('/messages', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
