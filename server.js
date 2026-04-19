@@ -457,7 +457,7 @@ app.get('/messages', authenticateToken, async (req, res) => {
       .from('Conversation')
       .select('*')
       .or(`buyerId.eq.${userId},sellerId.eq.${userId}`)
-      .order('createdAt', { ascending: false });
+     .order('updatedAt', { ascending: false })
 
     if (error) throw error;
 
@@ -498,7 +498,7 @@ app.get('/messages', authenticateToken, async (req, res) => {
           .from('Message')
           .select('content')
           .eq('conversationId', conv.id)
-          .order('createdAt', { ascending: false })
+         .order('updatedAt', { ascending: false })
           .limit(1)
           .maybeSingle();
 
