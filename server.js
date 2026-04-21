@@ -873,22 +873,30 @@ app.get('/admin/users', authenticateToken, isAdmin, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.get('/admin/products', authenticateToken, async (req, res) => {
+app.get('/admin/products', authenticateToken, isAdmin, async (req, res) => {
   try {
     const { data: products, error } = await supabase
       .from('Product')
       .select('*');
 
-    if (error) throw error;
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
 
-    // Get users (owners)
+    // Get unique user IDs
     const userIds = [...new Set(products.map(p => p.user_id))];
 
-    const { data: users } = await supabase
+    // Get owners
+    const { data: users, error: userError } = await supabase
       .from('User')
       .select('id, fullName, email')
       .in('id', userIds);
 
+    if (userError) {
+      return res.status(500).json({ error: userError.message });
+    }
+
+    // Merge product + owner
     const final = products.map(p => ({
       ...p,
       owner: users.find(u => String(u.id) === String(p.user_id)) || null
@@ -904,25 +912,38 @@ app.get('/admin/products', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.get('/admin/stats', authenticateToken, async (req, res) => {
-  try {
 
+app.get('/admin/stats', authenticateToken, isAdmin, async (req, res) => {
+  try {
     // USERS COUNT
-    const { count: totalUsers } = await supabase
+    const { count: totalUsers, error: userError } = await supabase
       .from('User')
       .select('*', { count: 'exact', head: true });
 
+    if (userError) {
+      return res.status(500).json({ error: userError.message });
+    }
+
     // PRODUCTS COUNT
-    const { count: totalProducts } = await supabase
+    const { count: totalProducts, error: productError } = await supabase
       .from('Product')
       .select('*', { count: 'exact', head: true });
 
-    // MESSAGES COUNT
-    const { count: totalConversations } = await supabase
+    if (productError) {
+      return res.status(500).json({ error: productError.message });
+    }
+
+    // CONVERSATIONS COUNT
+    const { count: totalConversations, error: convError } = await supabase
       .from('Conversation')
       .select('*', { count: 'exact', head: true });
 
+    if (convError) {
+      return res.status(500).json({ error: convError.message });
+    }
+
     res.json({
+      success: true,
       totalUsers: totalUsers || 0,
       totalProducts: totalProducts || 0,
       totalConversations: totalConversations || 0
@@ -933,4 +954,3 @@ app.get('/admin/stats', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
