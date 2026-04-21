@@ -379,18 +379,25 @@ app.delete('/products/favorite/:productId', authenticateToken, async (req, res) 
 
 app.post('/messages', authenticateToken, async (req, res) => {
   try {
-    const senderId = req.user.id;
+    const senderId = String(req.user.id);
     const { receiverId, productId, text } = req.body;
 
     if (!receiverId || !text) {
       return res.status(400).json({ error: "Missing data" });
     }
 
+    // ✅ BLOCK SELF MESSAGE
+    if (senderId === String(receiverId)) {
+      return res.status(400).json({
+        error: "You cannot message yourself"
+      });
+    }
+
     let sellerId;
     let buyerId;
 
     // =========================
-    // 1. DETERMINE ROLES CORRECTLY
+    // DETERMINE ROLES
     // =========================
     if (productId) {
       const { data: product, error: productError } = await supabase
@@ -403,36 +410,35 @@ app.post('/messages', authenticateToken, async (req, res) => {
         return res.status(404).json({ error: "Product not found" });
       }
 
-      sellerId = product.user_id;
+      sellerId = String(product.user_id);
 
-      // ✅ FIXED LOGIC (NO CONFUSION)
-      if (String(senderId) === String(sellerId)) {
-        buyerId = receiverId;
+      if (senderId === sellerId) {
+        buyerId = String(receiverId);
       } else {
         buyerId = senderId;
       }
 
     } else {
-      // fallback (if no product)
-      sellerId = receiverId;
+      sellerId = String(receiverId);
       buyerId = senderId;
     }
 
     // =========================
-    // 2. FIND EXISTING CONVERSATION
+    // FIND EXISTING CONVERSATION (FIXED)
     // =========================
     const { data: existingConv } = await supabase
       .from('Conversation')
       .select('*')
       .eq('productId', productId)
-      .eq('buyerId', buyerId)
-      .eq('sellerId', sellerId)
+      .or(
+        `and(buyerId.eq.${buyerId},sellerId.eq.${sellerId}),and(buyerId.eq.${sellerId},sellerId.eq.${buyerId})`
+      )
       .maybeSingle();
 
     let conversationId;
 
     // =========================
-    // 3. CREATE IF NOT EXISTS
+    // CREATE IF NOT EXISTS
     // =========================
     if (!existingConv) {
       const { data: newConv, error: convError } = await supabase
@@ -464,7 +470,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
     }
 
     // =========================
-    // 4. SAVE MESSAGE
+    // SAVE MESSAGE
     // =========================
     const { data: message, error: msgError } = await supabase
       .from('Message')
@@ -481,9 +487,6 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
     if (msgError) throw msgError;
 
-    // =========================
-    // 5. RESPONSE
-    // =========================
     res.json({
       success: true,
       message,
@@ -499,11 +502,8 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
 app.get('/messages', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = String(req.user.id);
 
-    // =========================
-    // 1. GET CONVERSATIONS
-    // =========================
     const { data: conversations, error } = await supabase
       .from('Conversation')
       .select('*')
@@ -512,13 +512,10 @@ app.get('/messages', authenticateToken, async (req, res) => {
 
     if (error) throw error;
 
-    if (!conversations || conversations.length === 0) {
+    if (!conversations.length) {
       return res.json({ conversations: [] });
     }
 
-    // =========================
-    // 2. PREPARE IDS
-    // =========================
     const productIds = conversations.map(c => c.productId).filter(Boolean);
 
     const userIds = [
@@ -527,9 +524,6 @@ app.get('/messages', authenticateToken, async (req, res) => {
       )
     ];
 
-    // =========================
-    // 3. FETCH RELATED DATA
-    // =========================
     const { data: products } = await supabase
       .from('Product')
       .select('id, title, images')
@@ -540,9 +534,6 @@ app.get('/messages', authenticateToken, async (req, res) => {
       .select('id, fullName, profileImage')
       .in('id', userIds);
 
-    // =========================
-    // 4. BUILD FINAL RESPONSE
-    // =========================
     const final = await Promise.all(
       conversations.map(async (conv) => {
 
@@ -550,10 +541,26 @@ app.get('/messages', authenticateToken, async (req, res) => {
         const seller = users.find(u => String(u.id) === String(conv.sellerId));
         const product = products.find(p => String(p.id) === String(conv.productId));
 
-        // ✅ GET LAST MESSAGE CORRECTLY
+        // ✅ FIX IMAGE PARSING
+        let image = null;
+        try {
+          if (Array.isArray(product?.images)) {
+            image = product.images[0];
+          } else if (typeof product?.images === "string") {
+            if (product.images.startsWith("[")) {
+              image = JSON.parse(product.images)[0];
+            } else {
+              image = product.images;
+            }
+          }
+        } catch {
+          image = null;
+        }
+
+        // ✅ LAST MESSAGE
         const { data: lastMsg } = await supabase
           .from('Message')
-         .select('text, createdAt')
+          .select('text, createdAt')
           .eq('conversationId', conv.id)
           .order('createdAt', { ascending: false })
           .limit(1)
@@ -571,14 +578,11 @@ app.get('/messages', authenticateToken, async (req, res) => {
           buyerAvatar: buyer?.profileImage || null,
 
           productName: product?.title || null,
-          productImage: product?.images?.[0] || null
+          productImage: image || null
         };
       })
     );
 
-    // =========================
-    // 5. RESPONSE
-    // =========================
     res.json({ conversations: final });
 
   } catch (err) {
