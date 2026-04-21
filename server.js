@@ -386,86 +386,110 @@ app.post('/messages', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    let conversation = null;
+    // =========================
+    // 1. GET PRODUCT OWNER (REAL SELLER)
+    // =========================
+    let sellerId = receiverId;
+    let buyerId = senderId;
 
-    // CHECK EXISTING CONVERSATION (BOTH DIRECTIONS)
-    const { data: conv1 } = await supabase
+    if (productId) {
+      const { data: product } = await supabase
+        .from('Product')
+        .select('user_id')
+        .eq('id', productId)
+        .single();
+
+      if (product) {
+        sellerId = product.user_id;
+
+        // whoever is NOT seller = buyer
+        buyerId = String(senderId) === String(sellerId)
+          ? receiverId
+          : senderId;
+      }
+    }
+
+    // =========================
+    // 2. FIND EXISTING CONVERSATION
+    // =========================
+    const { data: existingConv } = await supabase
       .from('Conversation')
       .select('*')
       .eq('productId', productId)
-      .eq('buyerId', senderId)
-      .eq('sellerId', receiverId)
+      .eq('buyerId', buyerId)
+      .eq('sellerId', sellerId)
       .maybeSingle();
-
-    const { data: conv2 } = await supabase
-      .from('Conversation')
-      .select('*')
-      .eq('productId', productId)
-      .eq('buyerId', receiverId)
-      .eq('sellerId', senderId)
-      .maybeSingle();
-
-    conversation = conv1 || conv2;
 
     let conversationId;
 
-    // CREATE CONVERSATION IF NOT EXISTS
-    if (!conversation) {
-      const { data: newConv, error: createError } = await supabase
+    // =========================
+    // 3. CREATE IF NOT EXISTS
+    // =========================
+    if (!existingConv) {
+      const { data: newConv, error } = await supabase
         .from('Conversation')
         .insert({
           id: Date.now().toString(),
-          productId: productId || null,
-          buyerId: senderId,
-          sellerId: receiverId,
+          productId,
+          buyerId,
+          sellerId,
+          lastMessage: text, // ✅ STORE DIRECTLY
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         })
         .select()
         .single();
 
-      if (createError) throw createError;
+      if (error) throw error;
 
       conversationId = newConv.id;
+
     } else {
-      conversationId = conversation.id;
+      conversationId = existingConv.id;
+
+      // ✅ UPDATE LAST MESSAGE
+      await supabase
+        .from('Conversation')
+        .update({
+          lastMessage: text,
+          updatedAt: new Date().toISOString()
+        })
+        .eq('id', conversationId);
     }
 
-    // ✅ FIX: USE text (NOT content)
-    const newMessage = {
-      id: Date.now().toString(),
-      conversationId,
-      senderId,
-      text, // 🔥 FIXED HERE
-      read: false,
-      createdAt: new Date().toISOString()
-    };
-
-    const { data: insertedMessage, error: msgError } = await supabase
+    // =========================
+    // 4. SAVE MESSAGE
+    // =========================
+    const { data: message, error: msgError } = await supabase
       .from('Message')
-      .insert(newMessage)
+      .insert({
+        id: Date.now().toString(),
+        conversationId,
+        senderId,
+        text,
+        read: false,
+        createdAt: new Date().toISOString()
+      })
       .select()
       .single();
 
     if (msgError) throw msgError;
 
-    // UPDATE CONVERSATION TIMESTAMP
-    await supabase
-      .from('Conversation')
-      .update({ updatedAt: new Date().toISOString() })
-      .eq('id', conversationId);
-
+    // =========================
+    // 5. RESPONSE
+    // =========================
     res.json({
       success: true,
-      message: insertedMessage,
+      message,
       conversationId
     });
 
   } catch (err) {
-    console.error("MESSAGE ERROR:", err);
+    console.error("SEND MESSAGE ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 app.get('/messages', authenticateToken, async (req, res) => {
   try {
@@ -509,8 +533,7 @@ app.get('/messages', authenticateToken, async (req, res) => {
         const product = products.find(p => String(p.id) === String(conv.productId));
 
         // ✅ FIX: use text + correct ordering
-        const { data: lastMessage } = await supabase
-          .from('Message')
+        lastMessage: conv.lastMessage || null
           .select('text')
           .eq('conversationId', conv.id)
           .order('createdAt', { ascending: false }) // 🔥 FIXED
@@ -545,7 +568,27 @@ app.get('/messages', authenticateToken, async (req, res) => {
 app.get('/messages/:conversationId', authenticateToken, async (req, res) => {
   try {
     const { conversationId } = req.params;
+    const userId = req.user.id;
 
+    // ✅ CHECK ACCESS
+    const { data: conv } = await supabase
+      .from('Conversation')
+      .select('*')
+      .eq('id', conversationId)
+      .single();
+
+    if (!conv) {
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    if (
+      String(conv.buyerId) !== String(userId) &&
+      String(conv.sellerId) !== String(userId)
+    ) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    // ✅ GET MESSAGES
     const { data, error } = await supabase
       .from('Message')
       .select('*')
