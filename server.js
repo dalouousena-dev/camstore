@@ -553,7 +553,7 @@ app.get('/messages', authenticateToken, async (req, res) => {
         // ✅ GET LAST MESSAGE CORRECTLY
         const { data: lastMsg } = await supabase
           .from('Message')
-          .select('text')
+         .select('text, createdAt')
           .eq('conversationId', conv.id)
           .order('createdAt', { ascending: false })
           .limit(1)
