@@ -386,26 +386,36 @@ app.post('/messages', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    let sellerId = receiverId;
-    let buyerId = senderId;
+    let sellerId;
+    let buyerId;
 
     // =========================
-    // 1. GET REAL SELLER
+    // 1. DETERMINE ROLES CORRECTLY
     // =========================
     if (productId) {
-      const { data: product } = await supabase
+      const { data: product, error: productError } = await supabase
         .from('Product')
         .select('user_id')
         .eq('id', productId)
         .single();
 
-      if (product) {
-        sellerId = product.user_id;
-
-        buyerId = String(senderId) === String(sellerId)
-          ? receiverId
-          : senderId;
+      if (productError || !product) {
+        return res.status(404).json({ error: "Product not found" });
       }
+
+      sellerId = product.user_id;
+
+      // ✅ FIXED LOGIC (NO CONFUSION)
+      if (String(senderId) === String(sellerId)) {
+        buyerId = receiverId;
+      } else {
+        buyerId = senderId;
+      }
+
+    } else {
+      // fallback (if no product)
+      sellerId = receiverId;
+      buyerId = senderId;
     }
 
     // =========================
@@ -425,7 +435,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
     // 3. CREATE IF NOT EXISTS
     // =========================
     if (!existingConv) {
-      const { data: newConv, error } = await supabase
+      const { data: newConv, error: convError } = await supabase
         .from('Conversation')
         .insert({
           id: Date.now().toString(),
@@ -438,14 +448,13 @@ app.post('/messages', authenticateToken, async (req, res) => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (convError) throw convError;
 
       conversationId = newConv.id;
 
     } else {
       conversationId = existingConv.id;
 
-      // only update timestamp
       await supabase
         .from('Conversation')
         .update({
@@ -486,6 +495,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 app.get('/messages', authenticateToken, async (req, res) => {
   try {
@@ -561,7 +571,7 @@ app.get('/messages', authenticateToken, async (req, res) => {
           buyerAvatar: buyer?.profileImage || null,
 
           productName: product?.title || null,
-          productImage: product?.images || null
+          productImage: product?.images?.[0] || null
         };
       })
     );
