@@ -382,49 +382,43 @@ app.post('/messages', authenticateToken, async (req, res) => {
     const senderId = String(req.user.id);
     const { receiverId, productId, text } = req.body;
 
-    if (!receiverId || !text) {
+    // =========================
+    // VALIDATION
+    // =========================
+    if (!receiverId || !productId || !text) {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    // ✅ BLOCK SELF MESSAGE
+    // =========================
+    // BLOCK SELF MESSAGE
+    // =========================
     if (senderId === String(receiverId)) {
       return res.status(400).json({
         error: "You cannot message yourself"
       });
     }
 
-    let sellerId;
-    let buyerId;
-
     // =========================
-    // DETERMINE ROLES
+    // GET PRODUCT OWNER (SELLER)
     // =========================
-    if (productId) {
-      const { data: product, error: productError } = await supabase
-        .from('Product')
-        .select('user_id')
-        .eq('id', productId)
-        .single();
+    const { data: product, error: productError } = await supabase
+      .from('Product')
+      .select('user_id')
+      .eq('id', productId)
+      .single();
 
-      if (productError || !product) {
-        return res.status(404).json({ error: "Product not found" });
-      }
-
-      sellerId = String(product.user_id);
-
-      if (senderId === sellerId) {
-        buyerId = String(receiverId);
-      } else {
-        buyerId = senderId;
-      }
-
-    } else {
-      sellerId = String(receiverId);
-      buyerId = senderId;
+    if (productError || !product) {
+      return res.status(404).json({ error: "Product not found" });
     }
 
+    // ✅ ALWAYS TRUST DATABASE
+    const sellerId = String(product.user_id);
+
+    // ✅ SENDER IS ALWAYS BUYER
+    const buyerId = senderId;
+
     // =========================
-    // FIND EXISTING CONVERSATION (FIXED)
+    // FIND EXISTING CONVERSATION
     // =========================
     const { data: existingConv } = await supabase
       .from('Conversation')
@@ -438,7 +432,7 @@ app.post('/messages', authenticateToken, async (req, res) => {
     let conversationId;
 
     // =========================
-    // CREATE IF NOT EXISTS
+    // CREATE OR UPDATE CONVERSATION
     // =========================
     if (!existingConv) {
       const { data: newConv, error: convError } = await supabase
@@ -487,6 +481,9 @@ app.post('/messages', authenticateToken, async (req, res) => {
 
     if (msgError) throw msgError;
 
+    // =========================
+    // RESPONSE
+    // =========================
     res.json({
       success: true,
       message,
