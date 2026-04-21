@@ -65,78 +65,100 @@ function isAdmin(req, res, next) {
 
 // CREATE PRODUCT
 // CREATE PRODUCT (FIXED ONLY THIS PART)
-app.post('/products', authenticateToken, upload.single('image'), async (req, res) => {
-  try {
-    const { title, description, price, location } = req.body;
+// CREATE PRODUCT (MULTIPLE IMAGES + ERROR HANDLING)
+app.post('/products', authenticateToken, (req, res) => {
 
-    if (!title || !price) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
+  const uploadMiddleware = upload.array('images', 3);
 
-    const userId = req.user?.id;
+  uploadMiddleware(req, res, async (err) => {
 
-    if (!userId) {
-      return res.status(401).json({ error: "User not authenticated" });
-    }
-
-    let imageUrl = null;
-
-    if (req.file) {
-      // ✅ FIX: sanitize filename (REMOVE SPECIAL CHARACTERS)
-      const cleanName = req.file.originalname
-        .normalize("NFD") // remove accents (é → e)
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9.]/g, "_"); // remove symbols
-
-      const fileName = `${Date.now()}-${cleanName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('products')
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype
+    // ✅ HANDLE MULTER ERROR (TOO MANY FILES)
+    if (err) {
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({
+          error: 'You can upload a maximum of 3 images.'
         });
-
-      if (uploadError) {
-        return res.status(500).json({ error: uploadError.message });
       }
 
-      const { data } = supabase.storage
-        .from('products')
-        .getPublicUrl(fileName);
-
-      imageUrl = data.publicUrl;
+      return res.status(500).json({
+        error: 'File upload error.'
+      });
     }
 
-    const newProduct = {
-      id: Date.now().toString(),
-      title,
-      description,
-      price: Number(price),
-      currency: 'XAF',
-      images: imageUrl,
-      user_id: userId,
-      location: location || null,
-      published: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    try {
+      const { title, description, price, location } = req.body;
 
-    const { data, error } = await supabase
-      .from('Product')
-      .insert([newProduct])
-      .select();
+      if (!title || !price) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
 
-    if (error) {
-      console.error("PRODUCT ERROR:", error);
-      return res.status(500).json({ error: error.message });
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      let imageUrls = [];
+
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          const cleanName = file.originalname
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-zA-Z0-9.]/g, "_");
+
+          const fileName = `${Date.now()}-${cleanName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('products')
+            .upload(fileName, file.buffer, {
+              contentType: file.mimetype
+            });
+
+          if (uploadError) {
+            return res.status(500).json({ error: uploadError.message });
+          }
+
+          const { data } = supabase.storage
+            .from('products')
+            .getPublicUrl(fileName);
+
+          imageUrls.push(data.publicUrl);
+        }
+      }
+
+      const newProduct = {
+        id: Date.now().toString(),
+        title,
+        description,
+        price: Number(price),
+        currency: 'XAF',
+        images: imageUrls,
+        user_id: userId,
+        location: location || null,
+        published: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('Product')
+        .insert([newProduct])
+        .select();
+
+      if (error) {
+        console.error("PRODUCT ERROR:", error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      res.json({ product: data[0] });
+
+    } catch (err) {
+      console.error("SERVER ERROR:", err);
+      res.status(500).json({ error: err.message });
     }
 
-    res.json({ product: data[0] });
-
-  } catch (err) {
-    console.error("SERVER ERROR:", err);
-    res.status(500).json({ error: err.message });
-  }
+  });
 });
 
 // GET PRODUCTS (FIXED HERE)
