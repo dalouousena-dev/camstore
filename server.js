@@ -626,25 +626,6 @@ app.get('/messages/:conversationId', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-app.get('/messages/conversations', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    const { data: conversations, error } = await supabase
-      .from('Conversation')
-      .select('*')
-      .or(`buyerId.eq.${userId},sellerId.eq.${userId}`)
-      .order('updatedAt', { ascending: false });
-
-    if (error) throw error;
-
-    res.json({ conversations });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 /* ======================== PAYMENT ======================== */
 
 app.post('/pay', authenticateToken, async (req, res) => {
