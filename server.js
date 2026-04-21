@@ -495,6 +495,9 @@ app.get('/messages', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
+    // =========================
+    // 1. GET CONVERSATIONS
+    // =========================
     const { data: conversations, error } = await supabase
       .from('Conversation')
       .select('*')
@@ -503,10 +506,13 @@ app.get('/messages', authenticateToken, async (req, res) => {
 
     if (error) throw error;
 
-    if (!conversations.length) {
+    if (!conversations || conversations.length === 0) {
       return res.json({ conversations: [] });
     }
 
+    // =========================
+    // 2. PREPARE IDS
+    // =========================
     const productIds = conversations.map(c => c.productId).filter(Boolean);
 
     const userIds = [
@@ -515,6 +521,9 @@ app.get('/messages', authenticateToken, async (req, res) => {
       )
     ];
 
+    // =========================
+    // 3. FETCH RELATED DATA
+    // =========================
     const { data: products } = await supabase
       .from('Product')
       .select('id, title, images')
@@ -525,6 +534,9 @@ app.get('/messages', authenticateToken, async (req, res) => {
       .select('id, fullName, profileImage')
       .in('id', userIds);
 
+    // =========================
+    // 4. BUILD FINAL RESPONSE
+    // =========================
     const final = await Promise.all(
       conversations.map(async (conv) => {
 
@@ -532,18 +544,19 @@ app.get('/messages', authenticateToken, async (req, res) => {
         const seller = users.find(u => String(u.id) === String(conv.sellerId));
         const product = products.find(p => String(p.id) === String(conv.productId));
 
-        // ✅ FIX: use text + correct ordering
-        lastMessage: conv.lastMessage || null
+        // ✅ GET LAST MESSAGE CORRECTLY
+        const { data: lastMsg } = await supabase
+          .from('Message')
           .select('text')
           .eq('conversationId', conv.id)
-          .order('createdAt', { ascending: false }) // 🔥 FIXED
+          .order('createdAt', { ascending: false })
           .limit(1)
           .maybeSingle();
 
         return {
           ...conv,
 
-          lastMessage: lastMessage?.text || null,
+          lastMessage: lastMsg?.text || null,
 
           sellerName: seller?.fullName || null,
           sellerAvatar: seller?.profileImage || null,
@@ -557,6 +570,9 @@ app.get('/messages', authenticateToken, async (req, res) => {
       })
     );
 
+    // =========================
+    // 5. RESPONSE
+    // =========================
     res.json({ conversations: final });
 
   } catch (err) {
