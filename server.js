@@ -386,12 +386,12 @@ app.post('/messages', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Missing data" });
     }
 
-    // =========================
-    // 1. GET PRODUCT OWNER (REAL SELLER)
-    // =========================
     let sellerId = receiverId;
     let buyerId = senderId;
 
+    // =========================
+    // 1. GET REAL SELLER
+    // =========================
     if (productId) {
       const { data: product } = await supabase
         .from('Product')
@@ -402,7 +402,6 @@ app.post('/messages', authenticateToken, async (req, res) => {
       if (product) {
         sellerId = product.user_id;
 
-        // whoever is NOT seller = buyer
         buyerId = String(senderId) === String(sellerId)
           ? receiverId
           : senderId;
@@ -433,7 +432,6 @@ app.post('/messages', authenticateToken, async (req, res) => {
           productId,
           buyerId,
           sellerId,
-          lastMessage: text, // ✅ STORE DIRECTLY
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         })
@@ -447,11 +445,10 @@ app.post('/messages', authenticateToken, async (req, res) => {
     } else {
       conversationId = existingConv.id;
 
-      // ✅ UPDATE LAST MESSAGE
+      // only update timestamp
       await supabase
         .from('Conversation')
         .update({
-          lastMessage: text,
           updatedAt: new Date().toISOString()
         })
         .eq('id', conversationId);
@@ -489,7 +486,6 @@ app.post('/messages', authenticateToken, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 app.get('/messages', authenticateToken, async (req, res) => {
   try {
